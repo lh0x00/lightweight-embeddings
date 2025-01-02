@@ -111,54 +111,82 @@ def create_main_interface():
         # Project Info
         gr.Markdown(
             """
-            ## 🚀 **Lightweight Embeddings API**  
+          ## 🚀 **Lightweight Embeddings API**  
+          The **Lightweight Embeddings API** is a fast, free, and multilingual service designed for generating embeddings and reranking with support for both **text** and **image** inputs. Get started below by exploring our interactive playground or using the cURL examples provided.
+          ---
+          ### 📦 Features
+          - **Multilingual Support**: Process inputs in multiple languages.
+          - **Versatile API**: Generate embeddings, perform ranking, and more.
+          - **Developer-Friendly**: Quick to integrate with documentation and examples.
 
-            Welcome to the **Lightweight Embeddings API**, a fast, free, and unlimited service for generating multilingual embeddings and reranking, supporting both **text** and **image** inputs. Discover its key features and capabilities below:
-            """
-        )
-        gr.Markdown(
-            f"""
-            ---
-            ### 📦 Project Details
-            - **Description**: {root_data["description"]}
-            
-            ### 🔗 Links
-            - [Documentation]({root_data["docs"]}) | [GitHub]({root_data["github"]}) | [Playground]({root_data["spaces"]})
-
-            ### 💡 How to Use
-            Visit **/docs** for API documentation or try the playground below! 🌏
-            """
+          ### 🔗 Links
+          - [Documentation]({root_data["docs"]}) | [GitHub]({root_data["github"]}) | [Playground]({root_data["spaces"]})
+          """
         )
 
-        # Embeddings Playground
-        with gr.Accordion("🔬 Try the Embeddings Playground", open=True):
-            gr.Markdown(
-                "Enter your **text** or an **image URL**, pick a model, "
-                "then click **Generate** to get embeddings from the `/v1/embeddings` API."
-            )
-            input_text = gr.Textbox(
-                label="Input Text or Image URL",
-                placeholder="Type some text or paste an image URL...",
-                lines=3,
-            )
-            model_dropdown = gr.Dropdown(
-                choices=model_options,
-                value=model_options[0],
-                label="Select Model",
-            )
-            generate_btn = gr.Button("Generate Embeddings")
-            output_json = gr.Textbox(
-                label="Embeddings API Response",
-                lines=15,
-                interactive=False,
-            )
+        # Split Layout: Playground and cURL Examples
+        with gr.Row():
+            with gr.Column():
+                gr.Markdown("### 🔬 Try the Embeddings Playground")
+                input_text = gr.Textbox(
+                    label="Input Text or Image URL",
+                    placeholder="Enter text or an image URL...",
+                    lines=3,
+                )
+                model_dropdown = gr.Dropdown(
+                    choices=model_options,
+                    value=model_options[0],
+                    label="Select Model",
+                )
+                generate_btn = gr.Button("Generate Embeddings")
+                output_json = gr.Textbox(
+                    label="Embeddings API Response",
+                    lines=10,
+                    interactive=False,
+                )
 
-            # Link the button to the inference function
-            generate_btn.click(
-                fn=call_embeddings_api,
-                inputs=[input_text, model_dropdown],
-                outputs=output_json,
-            )
+                # Link button to inference function
+                generate_btn.click(
+                    fn=call_embeddings_api,
+                    inputs=[input_text, model_dropdown],
+                    outputs=output_json,
+                )
+
+            with gr.Column():
+                gr.Markdown(
+                    """
+                  ### 🛠️ cURL Examples
+
+                  **Generate Embeddings**
+                  ```bash
+                  curl -X 'POST' \\
+                    'https://lamhieu-lightweight-embeddings.hf.space/v1/embeddings' \\
+                    -H 'accept: application/json' \\
+                    -H 'Content-Type: application/json' \\
+                    -d '{
+                    "model": "multilingual-e5-small",
+                    "input": "Translate this text into Spanish."
+                  }'
+                  ```
+
+                  **Perform Ranking**
+                  ```bash
+                  curl -X 'POST' \\
+                    'https://lamhieu-lightweight-embeddings.hf.space/v1/rank' \\
+                    -H 'accept: application/json' \\
+                    -H 'Content-Type: application/json' \\
+                    -d '{
+                    "model": "multilingual-e5-small",
+                    "queries": "Find the best match for this query.",
+                    "candidates": [
+                      "Candidate A",
+                      "Candidate B",
+                      "Candidate C"
+                    ]
+                  }'
+                  ```
+                  """
+                )
 
     return demo
 

@@ -1,10 +1,12 @@
 ---
-title: Lightweight Embeddings
-emoji: 🌍
-colorFrom: green
-colorTo: green
+title: Lightweight Embeddings API
+emoji: 👻 / 🧬
+colorFrom: purple
+colorTo: indigo
 sdk: docker
 app_file: app.py
+pinned: false
+header: mini
 ---
 
 # 🌍 LightweightEmbeddings: Multilingual, Fast, and Unlimited
