@@ -186,11 +186,12 @@ class EmbeddingsService:
                             "provider": "CPUExecutionProvider",  # or "CUDAExecutionProvider"
                             "file_name": info.onnx_file,
                         },
+                        trust_remote_code=True,
                     )
                 else:
                     # Fallback: standard HF loading
                     self.text_models[t_model_type] = SentenceTransformer(
-                        info.model_id, device=self.device
+                        info.model_id, device=self.device, trust_remote_code=True,
                     )
 
             for i_model_type in ImageModelType:
