@@ -41,10 +41,10 @@ cd lightweight-embeddings
 Make sure Docker is installed and running on your machine.
 ```bash
 docker build -t lightweight-embeddings .
-docker run -p 8000:8000 lightweight-embeddings
+docker run -p 7860:7860 lightweight-embeddings
 ```
 
-The API will now be accessible at `http://localhost:8000`.
+The API will now be accessible at `http://localhost:7860`.
 
 ## 📖 API Overview
 
@@ -53,14 +53,14 @@ The API will now be accessible at `http://localhost:8000`.
 - **`/v1/rank`**: Rank candidate inputs based on similarity to a query.
 
 ### Interactive Docs
-- Visit the [Swagger UI](http://localhost:8000/docs) for detailed, interactive documentation.
-- Explore additional resources with [ReDoc](http://localhost:8000/redoc).
+- Visit the [Swagger UI](http://localhost:7860/docs) for detailed, interactive documentation.
+- Explore additional resources with [ReDoc](http://localhost:7860/redoc).
 
 ## 🔬 Playground
 
 ### Embeddings Playground
 - Test text and image embedding generation in the browser with a user-friendly **Gradio interface**.
-- Simply visit `http://localhost:8000` after starting the server to access the playground.
+- Simply visit `http://localhost:7860` after starting the server to access the playground.
 
 ## 🌐 Resources
 

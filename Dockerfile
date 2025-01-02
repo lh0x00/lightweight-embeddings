@@ -26,9 +26,9 @@ COPY --chown=user . .
 RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
 # Expose service port
-EXPOSE 8000
+EXPOSE 7860
 
 # Launch FastAPI application using uvicorn server
 # --host 0.0.0.0: Listen on all network interfaces
-# --port 8000: Run on port 8000
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+# --port 7860: Run on port 7860
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]

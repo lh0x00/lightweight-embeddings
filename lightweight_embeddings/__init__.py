@@ -27,7 +27,7 @@ __author__ = "lamhieu"
 __description__ = "Fast, lightweight, multilingual embeddings solution."
 
 # Set your embeddings API URL here (change host/port if needed)
-EMBEDDINGS_API_URL = "http://localhost:8000/v1/embeddings"
+EMBEDDINGS_API_URL = "http://localhost:7860/v1/embeddings"
 
 # Initialize FastAPI application
 app = FastAPI(
