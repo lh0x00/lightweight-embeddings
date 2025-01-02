@@ -28,8 +28,8 @@ class LogFilter(logging.Filter):
     def filter(self, record):
         if record.args and len(record.args) >= 3:
             if "/v1" in str(record.args[2]):
-                return False
-        return True
+                return True
+        return False
 
 
 logger = logging.getLogger("uvicorn.access")
