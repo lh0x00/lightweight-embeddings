@@ -369,12 +369,13 @@ class EmbeddingsService:
         }
 
     def estimate_tokens(self, input_data: Union[str, List[str]]) -> int:
-        """
-        Very rough heuristic: ~4 chars per token.
-        """
-        texts = self._validate_text_input(input_data)
-        total_chars = sum(len(t) for t in texts)
-        return max(1, round(total_chars / 4))
+      """
+      Estimate token count using the model's tokenizer.
+      """
+      texts = self._validate_text_input(input_data)
+      model = self.text_models[self.config.text_model_type]
+      tokenized = model.tokenize(texts)
+      return sum(len(ids) for ids in tokenized['input_ids'])
 
     @staticmethod
     def softmax(scores: np.ndarray) -> np.ndarray:
