@@ -111,7 +111,7 @@ def create_main_interface():
         # Project Info
         gr.Markdown(
             """
-            # 🎉 **Lightweight Embeddings Service** 🎉
+            ## 🚀 **Lightweight Embeddings** 
             
             Welcome to the **Lightweight Embeddings** API, a blazing-fast and flexible service 
             supporting **text** and **image** embeddings. Below you'll find key project details:
@@ -119,22 +119,15 @@ def create_main_interface():
         )
         gr.Markdown(
             f"""
-            **Project**: {root_data["project"]} 🚀  
-            **Version**: {root_data["version"]}  
-            **Description**: {root_data["description"]}  
-
-            **Docs**: [Click here]({root_data["docs"]}) 😎  
-            **GitHub**: [Check it out]({root_data["github"]}) 🐙  
-            **Spaces**: [Explore]({root_data["spaces"]}) 🤗  
-            """
-        )
-        gr.Markdown(
-            """
             ---
+            ### 📦 Project Details
+            - **Description**: {root_data["description"]}
+            
+            ### 🔗 Links
+            - [Documentation]({root_data["docs"]}) | [GitHub]({root_data["github"]}) | [Demo]({root_data["spaces"]})
+
             ### 💡 How to Use
-            - Visit **/docs** or **/redoc** for interactive API documentation.
-            - Check out **/v1/embeddings** and **/v1/rank** endpoints for direct usage.
-            - Or try the simple playground below! Enjoy exploring a multilingual, multi-modal world! 🌏🌐
+            Visit **/docs** for API documentation or try the playground below! 🌏
             """
         )
 
