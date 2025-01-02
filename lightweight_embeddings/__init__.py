@@ -25,9 +25,37 @@ from gradio.routes import mount_gradio_app
 __version__ = "1.0.0"
 __author__ = "lamhieu"
 __description__ = "Fast, lightweight, multilingual embeddings solution."
+__metadata__ = {
+    "project": "Lightweight Embeddings Service",
+    "version": __version__,
+    "description": (
+        "Fast and efficient multilingual text and image embeddings service "
+        "powered by sentence-transformers, supporting 100+ languages and multi-modal inputs"
+    ),
+    "docs": "https://lamhieu-lightweight-embeddings.hf.space/docs",
+    "github": "https://github.com/lh0x00/lightweight-embeddings",
+    "spaces": "https://huggingface.co/spaces/lamhieu/lightweight-embeddings",
+}
 
 # Set your embeddings API URL here (change host/port if needed)
 EMBEDDINGS_API_URL = "http://localhost:7860/v1/embeddings"
+
+# Markdown description for the main interface
+APP_DESCRIPTION = f"""\
+## 🚀 **Lightweight Embeddings API**  
+
+The **Lightweight Embeddings API** is a fast, free, and multilingual service designed for generating embeddings and reranking with support for both **text** and **image** inputs. Get started below by exploring our interactive playground or using the cURL examples provided.
+
+---
+
+### 📦 Features
+- **Multilingual Support**: Process inputs in multiple languages.
+- **Versatile API**: Generate embeddings, perform ranking, and more.
+- **Developer-Friendly**: Quick to integrate with documentation and examples.
+
+### 🔗 Links
+- [Documentation]({__metadata__["docs"]}) | [GitHub]({__metadata__["github"]}) | [Playground]({__metadata__["spaces"]})
+"""
 
 # Initialize FastAPI application
 app = FastAPI(
@@ -86,19 +114,6 @@ def create_main_interface():
     """
     Creates a Gradio Blocks interface showing project info and an embeddings playground.
     """
-    # Metadata to be displayed
-    root_data = {
-        "project": "Lightweight Embeddings Service",
-        "version": "1.0.0",
-        "description": (
-            "Fast and efficient multilingual text and image embeddings service "
-            "powered by sentence-transformers, supporting 100+ languages and multi-modal inputs"
-        ),
-        "docs": "https://lamhieu-lightweight-embeddings.hf.space/docs",
-        "github": "https://github.com/lh0x00/lightweight-embeddings",
-        "spaces": "https://huggingface.co/spaces/lamhieu/lightweight-embeddings",
-    }
-
     # Available model options for the dropdown
     model_options = [
         "multilingual-e5-small",
@@ -109,20 +124,7 @@ def create_main_interface():
 
     with gr.Blocks(title="Lightweight Embeddings", theme="default") as demo:
         # Project Info
-        gr.Markdown(
-            """
-          ## 🚀 **Lightweight Embeddings API**  
-          The **Lightweight Embeddings API** is a fast, free, and multilingual service designed for generating embeddings and reranking with support for both **text** and **image** inputs. Get started below by exploring our interactive playground or using the cURL examples provided.
-          ---
-          ### 📦 Features
-          - **Multilingual Support**: Process inputs in multiple languages.
-          - **Versatile API**: Generate embeddings, perform ranking, and more.
-          - **Developer-Friendly**: Quick to integrate with documentation and examples.
-
-          ### 🔗 Links
-          - [Documentation]({root_data["docs"]}) | [GitHub]({root_data["github"]}) | [Playground]({root_data["spaces"]})
-          """
-        )
+        gr.Markdown(APP_DESCRIPTION)
 
         # Split Layout: Playground and cURL Examples
         with gr.Row():
