@@ -110,12 +110,12 @@ class ModelConfig:
                 onnx_file="onnx/model_quantized.onnx",
             ),
             TextModelType.PARAPHRASE_MULTILINGUAL_MINILM_L12_V2: ModelInfo(
-                model_id="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-                onnx_file="onnx/model_quint8_avx2.onnx",
+                model_id="Xenova/paraphrase-multilingual-MiniLM-L12-v2",
+                onnx_file="onnx/model_quantized.onnx",
             ),
             TextModelType.PARAPHRASE_MULTILINGUAL_MPNET_BASE_V2: ModelInfo(
-                model_id="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
-                onnx_file="onnx/model_quint8_avx2.onnx",
+                model_id="Xenova/paraphrase-multilingual-mpnet-base-v2",
+                onnx_file="onnx/model_quantized.onnx",
             ),
             TextModelType.BGE_M3: ModelInfo(
                 model_id="BAAI/bge-m3",

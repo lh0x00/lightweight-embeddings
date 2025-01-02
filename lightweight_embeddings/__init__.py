@@ -56,7 +56,6 @@ EMBEDDINGS_API_URL = "http://localhost:7860/v1/embeddings"
 
 # Markdown description for the main interface
 APP_DESCRIPTION = f"""
-<br />
 ## 🚀 **Lightweight Embeddings API**  
 
 The **Lightweight Embeddings API** is a fast, free, and multilingual service designed for generating embeddings and reranking with support for both **text** and **image** inputs. Get started below by exploring our interactive playground or using the cURL examples provided.
