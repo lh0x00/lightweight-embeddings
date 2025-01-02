@@ -11,7 +11,7 @@ Supported text model IDs:
 - "bge-m3"
 
 Supported image model ID:
-- "google/siglip-base-patch16-256-multilingual"
+- "siglip-base-patch16-256-multilingual"
 """
 
 import gradio as gr
@@ -137,7 +137,7 @@ def create_main_interface():
         "paraphrase-multilingual-MiniLM-L12-v2",
         "paraphrase-multilingual-mpnet-base-v2",
         "bge-m3",
-        "google/siglip-base-patch16-256-multilingual",
+        "siglip-base-patch16-256-multilingual",
     ]
 
     with gr.Blocks(title="Lightweight Embeddings", theme="default") as demo:
