@@ -14,12 +14,26 @@ Supported image model ID:
 - "google/siglip-base-patch16-256-multilingual"
 """
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 import gradio as gr
 import requests
 import json
+import logging
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from gradio.routes import mount_gradio_app
+
+
+# Filter out /v1 requests from the access log
+class LogFilter(logging.Filter):
+    def filter(self, record):
+        if record.args and len(record.args) >= 3:
+            if "/v1" in str(record.args[2]):
+                return False
+        return True
+
+
+logger = logging.getLogger("uvicorn.access")
+logger.addFilter(LogFilter())
 
 # Application metadata
 __version__ = "1.0.0"
@@ -41,17 +55,18 @@ __metadata__ = {
 EMBEDDINGS_API_URL = "http://localhost:7860/v1/embeddings"
 
 # Markdown description for the main interface
-APP_DESCRIPTION = f"""\
+APP_DESCRIPTION = f"""
+<br />
 ## 🚀 **Lightweight Embeddings API**  
 
 The **Lightweight Embeddings API** is a fast, free, and multilingual service designed for generating embeddings and reranking with support for both **text** and **image** inputs. Get started below by exploring our interactive playground or using the cURL examples provided.
 
----
+### ✨ Key Features
 
-### 📦 Features
-- **Multilingual Support**: Process inputs in multiple languages.
-- **Versatile API**: Generate embeddings, perform ranking, and more.
-- **Developer-Friendly**: Quick to integrate with documentation and examples.
+- **Free, Unlimited, and Multilingual**: A fully free API service with no usage limits, capable of processing text in over 100+ languages to support global applications seamlessly.  
+- **Advanced Embedding and Reranking**: Generate high-quality text and image-text embeddings using state-of-the-art models, alongside robust reranking capabilities for enhanced results.  
+- **Optimized and Flexible**: Built for speed with lightweight transformer models, efficient backends for rapid inference on low-resource systems, and support for diverse use cases with models.
+- **Production-Ready with Ease of Use**: Deploy effortlessly using Docker for a hassle-free setup, and experiment interactively through a **Gradio-powered playground** with comprehensive REST API documentation.  
 
 ### 🔗 Links
 - [Documentation]({__metadata__["docs"]}) | [GitHub]({__metadata__["github"]}) | [Playground]({__metadata__["spaces"]})
@@ -117,7 +132,11 @@ def create_main_interface():
     # Available model options for the dropdown
     model_options = [
         "multilingual-e5-small",
+        "multilingual-e5-base",
+        "multilingual-e5-large",
+        "snowflake-arctic-embed-l-v2.0",
         "paraphrase-multilingual-MiniLM-L12-v2",
+        "paraphrase-multilingual-mpnet-base-v2",
         "bge-m3",
         "google/siglip-base-patch16-256-multilingual",
     ]
@@ -167,7 +186,7 @@ def create_main_interface():
                     -H 'Content-Type: application/json' \\
                     -d '{
                     "model": "multilingual-e5-small",
-                    "input": "Translate this text into Spanish."
+                    "input": "That is a happy person"
                   }'
                   ```
 
@@ -179,11 +198,11 @@ def create_main_interface():
                     -H 'Content-Type: application/json' \\
                     -d '{
                     "model": "multilingual-e5-small",
-                    "queries": "Find the best match for this query.",
+                    "queries": "That is a happy person",
                     "candidates": [
-                      "Candidate A",
-                      "Candidate B",
-                      "Candidate C"
+                      "That is a happy dog",
+                      "That is a very happy person",
+                      "Today is a sunny day"
                     ]
                   }'
                   ```

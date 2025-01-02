@@ -1,12 +1,10 @@
-# filename: service.py
-
 """
-Lightweight Embeddings Service Module
+Lightweight Embeddings Service Module (Revised & Simplified)
 
 This module provides a service for generating and comparing embeddings from text and images
 using state-of-the-art transformer models. It supports both CPU and GPU inference.
 
-Key Features:
+Features:
 - Text and image embedding generation
 - Cross-modal similarity ranking
 - Batch processing support
@@ -17,8 +15,8 @@ Supported Text Model IDs:
 - "paraphrase-multilingual-MiniLM-L12-v2"
 - "bge-m3"
 
-Supported Image Model ID (default):
-- "google/siglip-base-patch16-256-multilingual"
+Supported Image Model IDs:
+- "google/siglip-base-patch16-256-multilingual" (default, but extensible)
 """
 
 from __future__ import annotations
@@ -37,441 +35,351 @@ from PIL import Image
 from sentence_transformers import SentenceTransformer
 from transformers import AutoProcessor, AutoModel
 
-# Configure logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
-
-# Default Model IDs
-TEXT_MODEL_ID = "Xenova/multilingual-e5-small"
-IMAGE_MODEL_ID = "google/siglip-base-patch16-256-multilingual"
 
 
 class TextModelType(str, Enum):
     """
     Enumeration of supported text models.
-    Please ensure the ONNX files and Hugging Face model IDs are consistent
-    with your local or remote environment.
+    Adjust as needed for your environment.
     """
 
     MULTILINGUAL_E5_SMALL = "multilingual-e5-small"
+    MULTILINGUAL_E5_BASE = "multilingual-e5-base"
+    MULTILINGUAL_E5_LARGE = "multilingual-e5-large"
+    SNOWFLAKE_ARCTIC_EMBED_L_V2 = "snowflake-arctic-embed-l-v2.0"
     PARAPHRASE_MULTILINGUAL_MINILM_L12_V2 = "paraphrase-multilingual-MiniLM-L12-v2"
+    PARAPHRASE_MULTILINGUAL_MPNET_BASE_V2 = "paraphrase-multilingual-mpnet-base-v2"
     BGE_M3 = "bge-m3"
+
+
+class ImageModelType(str, Enum):
+    """
+    Enumeration of supported image models.
+    """
+
+    SIGLIP_BASE_PATCH16_256_MULTILINGUAL = "siglip-base-patch16-256-multilingual"
 
 
 class ModelInfo(NamedTuple):
     """
-    Simple container for mapping a given text model type
-    to its Hugging Face model repository and the local ONNX file path.
+    Simple container that maps an enum to:
+      - model_id: Hugging Face model ID (or local path)
+      - onnx_file: Path to ONNX file (if available)
     """
 
     model_id: str
-    onnx_file: str
+    onnx_file: Optional[str] = None
 
 
 @dataclass
 class ModelConfig:
     """
-    Configuration settings for model providers, backends, and defaults.
+    Configuration for text and image models.
     """
 
-    provider: str = "CPUExecutionProvider"
-    backend: str = "onnx"
-    logit_scale: float = 4.60517
     text_model_type: TextModelType = TextModelType.MULTILINGUAL_E5_SMALL
-    image_model_id: str = IMAGE_MODEL_ID
+    image_model_type: ImageModelType = (
+        ImageModelType.SIGLIP_BASE_PATCH16_256_MULTILINGUAL
+    )
+
+    # If you need extra parameters like `logit_scale`, etc., keep them here
+    logit_scale: float = 4.60517
 
     @property
     def text_model_info(self) -> ModelInfo:
         """
-        Retrieves the ModelInfo for the currently selected text_model_type.
+        Return ModelInfo for the configured text_model_type.
         """
-        model_configs = {
+        text_configs = {
             TextModelType.MULTILINGUAL_E5_SMALL: ModelInfo(
-                "Xenova/multilingual-e5-small",
-                "onnx/model_quantized.onnx",
+                model_id="Xenova/multilingual-e5-small",
+                onnx_file="onnx/model_quantized.onnx",
+            ),
+            TextModelType.MULTILINGUAL_E5_BASE: ModelInfo(
+                model_id="Xenova/multilingual-e5-base",
+                onnx_file="onnx/model_quantized.onnx",
+            ),
+            TextModelType.MULTILINGUAL_E5_LARGE: ModelInfo(
+                model_id="Xenova/multilingual-e5-large",
+                onnx_file="onnx/model_quantized.onnx",
+            ),
+            TextModelType.SNOWFLAKE_ARCTIC_EMBED_L_V2: ModelInfo(
+                model_id="Snowflake/snowflake-arctic-embed-l-v2.0",
+                onnx_file="onnx/model_quantized.onnx",
             ),
             TextModelType.PARAPHRASE_MULTILINGUAL_MINILM_L12_V2: ModelInfo(
-                "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-                "onnx/model_quint8_avx2.onnx",
+                model_id="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                onnx_file="onnx/model_quint8_avx2.onnx",
+            ),
+            TextModelType.PARAPHRASE_MULTILINGUAL_MPNET_BASE_V2: ModelInfo(
+                model_id="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+                onnx_file="onnx/model_quint8_avx2.onnx",
             ),
             TextModelType.BGE_M3: ModelInfo(
-                "BAAI/bge-m3",
-                "model.onnx",
+                model_id="BAAI/bge-m3",
+                onnx_file="onnx/model.onnx",
             ),
         }
-        return model_configs[self.text_model_type]
+        return text_configs[self.text_model_type]
+
+    @property
+    def image_model_info(self) -> ModelInfo:
+        """
+        Return ModelInfo for the configured image_model_type.
+        """
+        image_configs = {
+            ImageModelType.SIGLIP_BASE_PATCH16_256_MULTILINGUAL: ModelInfo(
+                model_id="google/siglip-base-patch16-256-multilingual"
+            ),
+        }
+        return image_configs[self.image_model_type]
 
 
 class EmbeddingsService:
     """
-    Service for generating and comparing text/image embeddings.
-
-    This service supports multiple text models and a single image model.
-    It provides methods for:
-        - Generating text embeddings
-        - Generating image embeddings
-        - Ranking candidates by similarity
+    Service for generating text/image embeddings and performing ranking.
     """
 
-    def __init__(self, config: Optional[ModelConfig] = None) -> None:
-        """
-        Initialize the EmbeddingsService.
-
-        Args:
-            config: Optional ModelConfig object to override default settings.
-        """
-        # Determine whether GPU (CUDA) is available
+    def __init__(self, config: Optional[ModelConfig] = None):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-
-        # Use the provided config or fall back to defaults
         self.config = config or ModelConfig()
 
-        # Dictionary to hold multiple text models
+        # Preloaded text & image models
         self.text_models: Dict[TextModelType, SentenceTransformer] = {}
+        self.image_models: Dict[ImageModelType, AutoModel] = {}
+        self.image_processors: Dict[ImageModelType, AutoProcessor] = {}
 
-        # Load all models (text + image) into memory
-        self._load_models()
+        # Load all models
+        self._load_all_models()
 
-    def _load_models(self) -> None:
+    def _load_all_models(self) -> None:
         """
-        Load text and image models into memory.
-
-        This pre-loads all text models defined in the TextModelType enum
-        and a single image model, enabling quick switching at runtime.
+        Pre-load all known text and image models for quick switching.
         """
         try:
-            # Load all text models
-            for model_type in TextModelType:
-                model_info = ModelConfig(text_model_type=model_type).text_model_info
-                logger.info(f"Loading text model: {model_info.model_id}")
+            for t_model_type in TextModelType:
+                info = ModelConfig(text_model_type=t_model_type).text_model_info
+                logger.info("Loading text model: %s", info.model_id)
 
-                self.text_models[model_type] = SentenceTransformer(
-                    model_info.model_id,
-                    device=self.device,
-                    backend=self.config.backend,
-                    model_kwargs={
-                        "provider": self.config.provider,
-                        "file_name": model_info.onnx_file,
-                    },
-                )
+                # If you have an ONNX file AND your SentenceTransformer supports ONNX
+                if info.onnx_file:
+                    logger.info("Using ONNX file: %s", info.onnx_file)
+                    # The following 'backend' & 'model_kwargs' parameters
+                    # are recognized only in special/certain distributions of SentenceTransformer
+                    self.text_models[t_model_type] = SentenceTransformer(
+                        info.model_id,
+                        device=self.device,
+                        backend="onnx",  # or "ort" in some custom forks
+                        model_kwargs={
+                            "provider": "CPUExecutionProvider",  # or "CUDAExecutionProvider"
+                            "file_name": info.onnx_file,
+                        },
+                    )
+                else:
+                    # Fallback: standard HF loading
+                    self.text_models[t_model_type] = SentenceTransformer(
+                        info.model_id, device=self.device
+                    )
 
-            logger.info(f"Loading image model: {self.config.image_model_id}")
-            self.image_model = AutoModel.from_pretrained(self.config.image_model_id).to(
-                self.device
-            )
-            self.image_processor = AutoProcessor.from_pretrained(
-                self.config.image_model_id
-            )
+            for i_model_type in ImageModelType:
+                model_id = ModelConfig(
+                    image_model_type=i_model_type
+                ).image_model_info.model_id
+                logger.info("Loading image model: %s", model_id)
 
-            logger.info(f"All models loaded successfully on {self.device}.")
+                # Typically, for CLIP-like models:
+                model = AutoModel.from_pretrained(model_id).to(self.device)
+                processor = AutoProcessor.from_pretrained(model_id)
 
+                self.image_models[i_model_type] = model
+                self.image_processors[i_model_type] = processor
+
+            logger.info("All models loaded successfully.")
         except Exception as e:
-            logger.error(
-                "Model loading failed. Please ensure you have valid model IDs and local files.\n"
-                f"Error details: {str(e)}"
-            )
-            raise RuntimeError(f"Failed to load models: {str(e)}") from e
+            msg = f"Error loading models: {str(e)}"
+            logger.error(msg)
+            raise RuntimeError(msg) from e
 
     @staticmethod
     def _validate_text_input(input_text: Union[str, List[str]]) -> List[str]:
         """
-        Validate and standardize the input for text embeddings.
-
-        Args:
-            input_text: Either a single string or a list of strings.
-
-        Returns:
-            A list of strings to process.
-
-        Raises:
-            ValueError: If input_text is empty or not string-based.
+        Ensure input_text is a non-empty string or list of strings.
         """
         if isinstance(input_text, str):
+            if not input_text.strip():
+                raise ValueError("Text input cannot be empty.")
             return [input_text]
+
         if not isinstance(input_text, list) or not all(
             isinstance(x, str) for x in input_text
         ):
-            raise ValueError(
-                "Text input must be a single string or a list of strings. "
-                "Found a different data type instead."
-            )
-        if not input_text:
+            raise ValueError("Text input must be a string or a list of strings.")
+
+        if len(input_text) == 0:
             raise ValueError("Text input list cannot be empty.")
+
         return input_text
 
     @staticmethod
     def _validate_modality(modality: str) -> None:
+        if modality not in ("text", "image"):
+            raise ValueError("Unsupported modality. Must be 'text' or 'image'.")
+
+    def _process_image(self, path_or_url: Union[str, Path]) -> torch.Tensor:
         """
-        Validate the input modality.
-
-        Args:
-            modality: Must be either 'text' or 'image'.
-
-        Raises:
-            ValueError: If modality is neither 'text' nor 'image'.
-        """
-        if modality not in ["text", "image"]:
-            raise ValueError(
-                "Invalid modality. Please specify 'text' or 'image' for embeddings."
-            )
-
-    def _process_image(self, image_path: Union[str, Path]) -> torch.Tensor:
-        """
-        Load and preprocess an image from either a local path or a URL.
-
-        Args:
-            image_path: Path to the local image file or a URL.
-
-        Returns:
-            Torch Tensor suitable for model input.
-
-        Raises:
-            ValueError: If the image file or URL cannot be loaded.
+        Download/Load image from path/URL and apply transformations.
         """
         try:
-            if str(image_path).startswith("http"):
-                response = requests.get(image_path, timeout=10)
-                response.raise_for_status()
-                image_content = BytesIO(response.content)
+            if isinstance(path_or_url, Path) or not path_or_url.startswith("http"):
+                # Local file path
+                img = Image.open(path_or_url).convert("RGB")
             else:
-                image_content = image_path
+                # URL
+                resp = requests.get(path_or_url, timeout=10)
+                resp.raise_for_status()
+                img = Image.open(BytesIO(resp.content)).convert("RGB")
 
-            image = Image.open(image_content).convert("RGB")
-            processed = self.image_processor(images=image, return_tensors="pt").to(
-                self.device
-            )
-            return processed
-
+            proc = self.image_processors[self.config.image_model_type]
+            data = proc(images=img, return_tensors="pt").to(self.device)
+            return data
         except Exception as e:
-            raise ValueError(
-                f"Failed to process image at '{image_path}'. Check the path/URL and file format.\n"
-                f"Details: {str(e)}"
-            ) from e
+            raise ValueError(f"Error processing image '{path_or_url}': {str(e)}") from e
 
     def _generate_text_embeddings(self, texts: List[str]) -> np.ndarray:
         """
-        Helper method to generate text embeddings for a list of texts
-        using the currently configured text model.
-
-        Args:
-            texts: A list of text strings.
-
-        Returns:
-            Numpy array of shape (num_texts, embedding_dim).
-
-        Raises:
-            RuntimeError: If the text model fails to generate embeddings.
+        Generate text embeddings using the currently configured text model.
         """
         try:
-            logger.info(
-                f"Generating embeddings for {len(texts)} text items using model: "
-                f"{self.config.text_model_type}"
-            )
-            # Select the preloaded text model based on the current config
             model = self.text_models[self.config.text_model_type]
-            embeddings = model.encode(texts)
+            embeddings = model.encode(texts)  # shape: (num_items, emb_dim)
             return embeddings
         except Exception as e:
-            error_msg = (
-                f"Error generating text embeddings with model: {self.config.text_model_type}. "
-                f"Details: {str(e)}"
-            )
-            logger.error(error_msg)
-            raise RuntimeError(error_msg) from e
+            raise RuntimeError(
+                f"Error generating text embeddings for model '{self.config.text_model_type}': {e}"
+            ) from e
 
     def _generate_image_embeddings(
-        self, input_data: Union[str, List[str]], batch_size: Optional[int]
+        self,
+        images: Union[str, List[str]],
+        batch_size: Optional[int] = None,
     ) -> np.ndarray:
         """
-        Helper method to generate image embeddings.
-
-        Args:
-            input_data: Either a single image path/URL or a list of them.
-            batch_size: Batch size for processing images in chunks.
-                        If None, process all at once.
-
-        Returns:
-            Numpy array of shape (num_images, embedding_dim).
-
-        Raises:
-            RuntimeError: If the image model fails to generate embeddings.
+        Generate image embeddings using the currently configured image model.
+        If `batch_size` is None, all images are processed at once.
         """
         try:
-            if isinstance(input_data, str):
-                # Single image scenario
-                processed = self._process_image(input_data)
-                with torch.no_grad():
-                    embedding = self.image_model.get_image_features(**processed)
-                return embedding.cpu().numpy()
+            model = self.image_models[self.config.image_model_type]
 
-            # Multiple images scenario
-            logger.info(f"Generating embeddings for {len(input_data)} images.")
+            # Single image
+            if isinstance(images, str):
+                processed = self._process_image(images)
+                with torch.no_grad():
+                    emb = model.get_image_features(**processed)
+                return emb.cpu().numpy()
+
+            # Multiple images
             if batch_size is None:
-                # Process all images at once
-                processed_batches = [
-                    self._process_image(img_path) for img_path in input_data
-                ]
+                # Process them all in one batch
+                tensors = []
+                for img_path in images:
+                    tensors.append(self._process_image(img_path))
+                # Concatenate
+                keys = tensors[0].keys()
+                combined = {k: torch.cat([t[k] for t in tensors], dim=0) for k in keys}
                 with torch.no_grad():
-                    # Concatenate all images along the batch dimension
-                    batch_keys = processed_batches[0].keys()
-                    concatenated = {
-                        k: torch.cat([pb[k] for pb in processed_batches], dim=0)
-                        for k in batch_keys
-                    }
-                    embedding = self.image_model.get_image_features(**concatenated)
-                return embedding.cpu().numpy()
+                    emb = model.get_image_features(**combined)
+                return emb.cpu().numpy()
 
-            # Process images in smaller batches
-            embeddings_list = []
-            for i, img_path in enumerate(input_data):
-                if i % batch_size == 0:
-                    logger.debug(
-                        f"Processing image batch {i // batch_size + 1} with size up to {batch_size}."
-                    )
-                processed = self._process_image(img_path)
+            # Process in smaller batches
+            all_embeddings = []
+            for i in range(0, len(images), batch_size):
+                batch_images = images[i : i + batch_size]
+                # Process each sub-batch
+                tensors = []
+                for img_path in batch_images:
+                    tensors.append(self._process_image(img_path))
+                keys = tensors[0].keys()
+                combined = {k: torch.cat([t[k] for t in tensors], dim=0) for k in keys}
+
                 with torch.no_grad():
-                    embedding = self.image_model.get_image_features(**processed)
-                embeddings_list.append(embedding.cpu().numpy())
+                    emb = model.get_image_features(**combined)
+                all_embeddings.append(emb.cpu().numpy())
 
-            return np.vstack(embeddings_list)
+            return np.vstack(all_embeddings)
 
         except Exception as e:
-            error_msg = (
-                f"Error generating image embeddings with model: {self.config.image_model_id}. "
-                f"Details: {str(e)}"
-            )
-            logger.error(error_msg)
-            raise RuntimeError(error_msg) from e
+            raise RuntimeError(
+                f"Error generating image embeddings for model '{self.config.image_model_type}': {e}"
+            ) from e
 
     async def generate_embeddings(
         self,
         input_data: Union[str, List[str]],
-        modality: Literal["text", "image"] = "text",
+        modality: Literal["text", "image"],
         batch_size: Optional[int] = None,
     ) -> np.ndarray:
         """
-        Asynchronously generate embeddings for text or image inputs.
-
-        Args:
-            input_data: A string or list of strings (text/image paths/URLs).
-            modality: "text" for text data or "image" for image data.
-            batch_size: Optional batch size for processing images in chunks.
-
-        Returns:
-            Numpy array of embeddings.
-
-        Raises:
-            ValueError: If the modality is invalid.
+        Asynchronously generate embeddings for text or image.
         """
         self._validate_modality(modality)
-
         if modality == "text":
-            texts = self._validate_text_input(input_data)
-            return self._generate_text_embeddings(texts)
+            text_list = self._validate_text_input(input_data)
+            return self._generate_text_embeddings(text_list)
         else:
-            return self._generate_image_embeddings(input_data, batch_size)
+            return self._generate_image_embeddings(input_data, batch_size=batch_size)
 
     async def rank(
         self,
         queries: Union[str, List[str]],
         candidates: List[str],
-        modality: Literal["text", "image"] = "text",
+        modality: Literal["text", "image"],
         batch_size: Optional[int] = None,
     ) -> Dict[str, List[List[float]]]:
         """
-        Rank a set of candidate texts against one or more queries using cosine similarity
-        and a softmax to produce probability-like scores.
-
-        Args:
-            queries: Query text(s) or image path(s)/URL(s).
-            candidates: Candidate texts to be ranked.
-                        (Note: This implementation always treats candidates as text.)
-            modality: "text" for text queries or "image" for image queries.
-            batch_size: Batch size if images are processed in chunks.
-
-        Returns:
-            Dictionary containing:
-                - "probabilities": 2D list of softmax-normalized scores.
-                - "cosine_similarities": 2D list of raw cosine similarity values.
-
-        Raises:
-            RuntimeError: If the query or candidate embeddings fail to generate.
+        Rank candidates (always text) against the queries, which may be text or image.
+        Returns dict of { probabilities, cosine_similarities }.
         """
-        logger.info(
-            f"Ranking {len(candidates)} candidates against "
-            f"{len(queries) if isinstance(queries, list) else 1} query item(s)."
-        )
+        # 1) Generate embeddings for queries
+        query_embeds = await self.generate_embeddings(queries, modality, batch_size)
+        # 2) Generate embeddings for text candidates
+        candidate_embeds = await self.generate_embeddings(candidates, "text")
 
-        # Generate embeddings for queries
-        query_embeds = await self.generate_embeddings(
-            queries, modality=modality, batch_size=batch_size
-        )
-
-        # Generate embeddings for candidates (always text)
-        candidate_embeds = await self.generate_embeddings(
-            candidates, modality="text", batch_size=batch_size
-        )
-
-        # Compute cosine similarity and scaled probabilities
-        cosine_sims = self.cosine_similarity(query_embeds, candidate_embeds)
-        logit_scale = np.exp(self.config.logit_scale)
-        probabilities = self.softmax(logit_scale * cosine_sims)
+        # 3) Compute cosine sim
+        sim_matrix = self.cosine_similarity(query_embeds, candidate_embeds)
+        # 4) Apply logit scale + softmax
+        scaled = np.exp(self.config.logit_scale) * sim_matrix
+        probs = self.softmax(scaled)
 
         return {
-            "probabilities": probabilities.tolist(),
-            "cosine_similarities": cosine_sims.tolist(),
+            "probabilities": probs.tolist(),
+            "cosine_similarities": sim_matrix.tolist(),
         }
 
     def estimate_tokens(self, input_data: Union[str, List[str]]) -> int:
         """
-        Roughly estimate the total number of tokens in the given text(s).
-
-        Args:
-            input_data: A string or list of strings representing text input.
-
-        Returns:
-            Estimated token count (int).
-
-        Raises:
-            ValueError: If the input is not valid text data.
+        Very rough heuristic: ~4 chars per token.
         """
         texts = self._validate_text_input(input_data)
-        # Very rough approximation: assume ~4 characters per token
         total_chars = sum(len(t) for t in texts)
         return max(1, round(total_chars / 4))
 
     @staticmethod
     def softmax(scores: np.ndarray) -> np.ndarray:
         """
-        Apply softmax along the last dimension of the scores array.
-
-        Args:
-            scores: Numpy array of shape (..., num_candidates).
-
-        Returns:
-            Numpy array of softmax-normalized values, same shape as scores.
+        Standard softmax along the last dimension.
         """
-        exp_scores = np.exp(scores - np.max(scores, axis=-1, keepdims=True))
-        return exp_scores / np.sum(exp_scores, axis=-1, keepdims=True)
+        exps = np.exp(scores - np.max(scores, axis=-1, keepdims=True))
+        return exps / np.sum(exps, axis=-1, keepdims=True)
 
     @staticmethod
-    def cosine_similarity(
-        query_embeds: np.ndarray, candidate_embeds: np.ndarray
-    ) -> np.ndarray:
+    def cosine_similarity(a: np.ndarray, b: np.ndarray) -> np.ndarray:
         """
-        Compute the cosine similarity between two sets of vectors.
-
-        Args:
-            query_embeds: Numpy array of shape (num_queries, embed_dim).
-            candidate_embeds: Numpy array of shape (num_candidates, embed_dim).
-
-        Returns:
-            2D Numpy array of shape (num_queries, num_candidates)
-            containing cosine similarity scores.
+        a: (N, D)
+        b: (M, D)
+        Return: (N, M) of cos sim
         """
-        # Normalize embeddings
-        query_norm = query_embeds / np.linalg.norm(query_embeds, axis=1, keepdims=True)
-        candidate_norm = candidate_embeds / np.linalg.norm(
-            candidate_embeds, axis=1, keepdims=True
-        )
-        return np.dot(query_norm, candidate_norm.T)
+        a_norm = a / (np.linalg.norm(a, axis=1, keepdims=True) + 1e-9)
+        b_norm = b / (np.linalg.norm(b, axis=1, keepdims=True) + 1e-9)
+        return np.dot(a_norm, b_norm.T)
