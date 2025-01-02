@@ -11,6 +11,7 @@ Supported Text Model IDs:
 - "paraphrase-multilingual-MiniLM-L12-v2"
 - "paraphrase-multilingual-mpnet-base-v2"
 - "bge-m3"
+- "gte-multilingual-base"
 
 Supported Image Model IDs:
 - "siglip-base-patch16-256-multilingual"

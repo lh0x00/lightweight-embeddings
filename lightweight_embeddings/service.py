@@ -18,6 +18,7 @@ Supported Text Model IDs:
 - "paraphrase-multilingual-MiniLM-L12-v2"
 - "paraphrase-multilingual-mpnet-base-v2"
 - "bge-m3"
+- "gte-multilingual-base"
 
 Supported Image Model IDs:
 - "google/siglip-base-patch16-256-multilingual" (default, but extensible)
@@ -56,6 +57,7 @@ class TextModelType(str, Enum):
     PARAPHRASE_MULTILINGUAL_MINILM_L12_V2 = "paraphrase-multilingual-MiniLM-L12-v2"
     PARAPHRASE_MULTILINGUAL_MPNET_BASE_V2 = "paraphrase-multilingual-mpnet-base-v2"
     BGE_M3 = "bge-m3"
+    GTE_MULTILINGUAL_BASE = "gte-multilingual-base"
 
 
 class ImageModelType(str, Enum):
@@ -122,8 +124,12 @@ class ModelConfig:
                 onnx_file="onnx/model_quantized.onnx",
             ),
             TextModelType.BGE_M3: ModelInfo(
-                model_id="BAAI/bge-m3",
-                onnx_file="onnx/model.onnx",
+                model_id="Xenova/bge-m3",
+                onnx_file="onnx/model_quantized.onnx",
+            ),
+            TextModelType.GTE_MULTILINGUAL_BASE: ModelInfo(
+                model_id="onnx-community/gte-multilingual-base",
+                onnx_file="onnx/model_quantized.onnx",
             ),
         }
         return text_configs[self.text_model_type]

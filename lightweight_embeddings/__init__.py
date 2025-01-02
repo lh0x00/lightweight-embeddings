@@ -13,6 +13,7 @@ Supported text model IDs:
 - "paraphrase-multilingual-MiniLM-L12-v2"
 - "paraphrase-multilingual-mpnet-base-v2"
 - "bge-m3"
+- "gte-multilingual-base"
 
 Supported image model ID:
 - "siglip-base-patch16-256-multilingual"
@@ -135,12 +136,13 @@ def create_main_interface():
     # Available model options for the dropdown
     model_options = [
         "snowflake-arctic-embed-l-v2.0",
+        "bge-m3",
+        "gte-multilingual-base",
+        "paraphrase-multilingual-MiniLM-L12-v2",
+        "paraphrase-multilingual-mpnet-base-v2",
         "multilingual-e5-small",
         "multilingual-e5-base",
         "multilingual-e5-large",
-        "paraphrase-multilingual-MiniLM-L12-v2",
-        "paraphrase-multilingual-mpnet-base-v2",
-        "bge-m3",
         "siglip-base-patch16-256-multilingual",
     ]
 
