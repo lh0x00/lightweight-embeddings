@@ -1,7 +1,8 @@
 [tool.poetry]
 name = "lightweight-embeddings"
 version = "0.1.0"
-description = "Fast, lightweight, multilingual embeddings solution."
+short_description = "A fast, free, unlimited APIs service for multilingual embeddings and reranking, supporting text and image inputs."
+description = "LightweightEmbeddings is a fast, free, and unlimited API service for multilingual embeddings and reranking, with support for both text and images and guaranteed uptime."
 authors = ["Hieu Lam <lamhieu.vk@gmail.com>"]
 readme = "README.md"
 

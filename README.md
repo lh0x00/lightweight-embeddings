@@ -7,20 +7,22 @@ sdk: docker
 app_file: app.py
 ---
 
-# 🌍 LightweightEmbeddings: Multilingual, Fast, and Lightweight
+# 🌍 LightweightEmbeddings: Multilingual, Fast, and Unlimited
 
-**LightweightEmbeddings** is a high-performance framework designed for generating embeddings from **text** or **image-text inputs** across multiple languages. Engineered for efficiency and adaptability, it offers a perfect balance between speed and accuracy, making it ideal for **real-time applications** and **resource-constrained environments**.
+**LightweightEmbeddings** is a fast, free, and unlimited API service for multilingual embeddings and reranking, with support for both text and images and guaranteed uptime.
 
 ## ✨ Key Features
 
-- **Multilingual Support**: Seamlessly process text in over 100+ languages for truly global applications.
-- **Text and Image Embeddings**: Generate embeddings from text or image-text pairs using state-of-the-art models.
-- **Optimized for Speed**: Built with lightweight transformer models and efficient backends to ensure rapid inference, even on low-resource systems.
-- **Flexibility**: Supports multiple transformer models for diverse use cases:
+- **Free and Unlimited**: A completely free API service with no limits on usage, making it accessible for everyone.
+- **Multilingual Support**: Seamlessly process text in over 100+ languages for global applications.
+- **Text and Image Embeddings**: Generate high-quality embeddings from text or image-text pairs using state-of-the-art models.
+- **Reranking Support**: Includes powerful reranking capabilities for both text and image inputs.
+- **Optimized for Speed**: Built with lightweight transformer models and efficient backends for rapid inference, even on low-resource systems.
+- **Flexible Model Support**: Use a range of transformer models tailored to diverse use cases:
   - Text models: `multilingual-e5-small`, `paraphrase-multilingual-MiniLM-L12-v2`, `bge-m3`
   - Image model: `google/siglip-base-patch16-256-multilingual`
-- **Dockerized**: Deploy anywhere with ease using Docker, making it production-ready out of the box.
-- **Interactive API**: Comes with a **Gradio-powered playground** and detailed REST API documentation.
+- **Production-Ready**: Easily deploy anywhere with Docker for hassle-free setup.
+- **Interactive Playground**: Test embeddings and reranking directly via a **Gradio-powered interface** alongside detailed REST API documentation.
 
 ## 🚀 Use Cases
 
