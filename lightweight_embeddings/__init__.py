@@ -7,7 +7,11 @@ This application provides text and image embeddings using multiple text models a
 
 Supported text model IDs:
 - "multilingual-e5-small"
+- "multilingual-e5-base"
+- "multilingual-e5-large"
+- "snowflake-arctic-embed-l-v2.0"
 - "paraphrase-multilingual-MiniLM-L12-v2"
+- "paraphrase-multilingual-mpnet-base-v2"
 - "bge-m3"
 
 Supported image model ID:
@@ -130,10 +134,10 @@ def create_main_interface():
     """
     # Available model options for the dropdown
     model_options = [
+        "snowflake-arctic-embed-l-v2.0",
         "multilingual-e5-small",
         "multilingual-e5-base",
         "multilingual-e5-large",
-        "snowflake-arctic-embed-l-v2.0",
         "paraphrase-multilingual-MiniLM-L12-v2",
         "paraphrase-multilingual-mpnet-base-v2",
         "bge-m3",
@@ -184,7 +188,7 @@ def create_main_interface():
                     -H 'accept: application/json' \\
                     -H 'Content-Type: application/json' \\
                     -d '{
-                    "model": "multilingual-e5-small",
+                    "model": "snowflake-arctic-embed-l-v2.0",
                     "input": "That is a happy person"
                   }'
                   ```
@@ -196,7 +200,7 @@ def create_main_interface():
                     -H 'accept: application/json' \\
                     -H 'Content-Type: application/json' \\
                     -d '{
-                    "model": "multilingual-e5-small",
+                    "model": "snowflake-arctic-embed-l-v2.0",
                     "queries": "That is a happy person",
                     "candidates": [
                       "That is a happy dog",

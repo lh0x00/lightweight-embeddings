@@ -12,7 +12,11 @@ Features:
 
 Supported Text Model IDs:
 - "multilingual-e5-small"
+- "multilingual-e5-base"
+- "multilingual-e5-large"
+- "snowflake-arctic-embed-l-v2.0"
 - "paraphrase-multilingual-MiniLM-L12-v2"
+- "paraphrase-multilingual-mpnet-base-v2"
 - "bge-m3"
 
 Supported Image Model IDs:

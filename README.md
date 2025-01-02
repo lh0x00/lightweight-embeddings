@@ -21,8 +21,8 @@ header: mini
 - **Reranking Support**: Includes powerful reranking capabilities for both text and image inputs.
 - **Optimized for Speed**: Built with lightweight transformer models and efficient backends for rapid inference, even on low-resource systems.
 - **Flexible Model Support**: Use a range of transformer models tailored to diverse use cases:
-  - Text models: `multilingual-e5-small`, `paraphrase-multilingual-MiniLM-L12-v2`, `bge-m3`
-  - Image model: `google/siglip-base-patch16-256-multilingual`
+  - Text models: `multilingual-e5-small`, `multilingual-e5-base`, `multilingual-e5-large`, `snowflake-arctic-embed-l-v2.0`, `paraphrase-multilingual-MiniLM-L12-v2`, `paraphrase-multilingual-mpnet-base-v2`, `bge-m3`.
+  - Image model: `siglip-base-patch16-256-multilingual`
 - **Production-Ready**: Easily deploy anywhere with Docker for hassle-free setup.
 - **Interactive Playground**: Test embeddings and reranking directly via a **Gradio-powered interface** alongside detailed REST API documentation.
 
