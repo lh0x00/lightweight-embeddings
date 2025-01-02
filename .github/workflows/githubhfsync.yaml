@@ -1,0 +1,26 @@
+name: Sync Repository to HuggingFace Space
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # Enable manual trigger
+
+jobs:
+  sync-to-huggingface:
+    name: Sync code to HuggingFace Space
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Fetch all history for all branches and tags
+          lfs: true      # Enable Git LFS support
+
+      - name: Push to HuggingFace Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if ! git push https://lamhieu:$HF_TOKEN@huggingface.co/spaces/lamhieu/lightweight-embeddings main; then
+            echo "Failed to sync with HuggingFace Space"
+            exit 1
+          fi

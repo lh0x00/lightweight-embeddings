@@ -1,0 +1,54 @@
+# Python bytecode files
+# Ignore Python bytecode files
+*.pyc
+
+# Distribution packages
+# Ignore distribution packages
+/dist/*
+
+# Test and coverage reports
+# Ignore coverage and test result files
+.coverage
+.pytest_cache
+.mypy_cache
+
+# Log and temporary files
+# Ignore log files and temporary files
+*.log
+*.tmp
+tmp
+
+# System files
+# Ignore OS generated files
+.DS_Store
+
+# IDE and editor specific files
+# Ignore project-specific files from various IDEs and editors
+.idea/*
+.vscode/*
+.python-version
+
+# Generated documentation
+# Ignore generated documentation files
+/docs/site/*
+
+# Virtual environments
+# Ignore virtual environment directories
+.venv
+
+# Configuration files
+# Ignore configuration files
+.poetry.toml
+.env.local
+.env.development
+.env.test
+.env.production
+.env
+
+# Temporary files and directories for operations
+# Ignore Ops temporary files and directories
+.aider*
+
+# Credentials and secrets
+# Ignore credentials and secrets files
+.credentials
