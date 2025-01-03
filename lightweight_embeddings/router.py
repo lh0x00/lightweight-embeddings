@@ -20,12 +20,15 @@ Supported Image Model IDs:
 from __future__ import annotations
 
 import logging
-from typing import List, Union
+import os
+from typing import Dict, Any, List, Union
 from enum import Enum
+from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
+from .analytics import Analytics
 from .service import (
     ModelConfig,
     TextModelType,
@@ -120,12 +123,29 @@ class RankResponse(BaseModel):
     probabilities: List[List[float]]
     cosine_similarities: List[List[float]]
 
+
+class StatsResponse(BaseModel):
+    """Analytics stats response model"""
+
+    total: Dict[str, int]
+    daily: Dict[str, int]
+    weekly: Dict[str, int]
+    monthly: Dict[str, int]
+    yearly: Dict[str, int]
+
+
 service_config = ModelConfig()
 embeddings_service = EmbeddingsService(config=service_config)
 
+analytics = Analytics(
+    redis_url=os.environ.get("REDIS_URL", "redis://localhost:6379/0"), sync_interval=60
+)
+
 
 @router.post("/embeddings", response_model=EmbeddingResponse, tags=["embeddings"])
-async def create_embeddings(request: EmbeddingRequest):
+async def create_embeddings(
+    request: EmbeddingRequest, background_tasks: BackgroundTasks
+):
     """
     Generates embeddings for the given input (text or image).
     """
@@ -144,6 +164,8 @@ async def create_embeddings(request: EmbeddingRequest):
             input_data=request.input, modality=mkind.value
         )
 
+        background_tasks.add_task(analytics.access, request.model)
+
         # 4) Estimate tokens for text only
         total_tokens = 0
         if mkind == ModelKind.TEXT:
@@ -158,6 +180,7 @@ async def create_embeddings(request: EmbeddingRequest):
                 "total_tokens": total_tokens,
             },
         }
+
         for idx, emb in enumerate(embeddings):
             resp["data"].append(
                 {
@@ -179,7 +202,7 @@ async def create_embeddings(request: EmbeddingRequest):
 
 
 @router.post("/rank", response_model=RankResponse, tags=["rank"])
-async def rank_candidates(request: RankRequest):
+async def rank_candidates(request: RankRequest, background_tasks: BackgroundTasks):
     """
     Ranks candidate texts against the given queries (which can be text or image).
     """
@@ -196,6 +219,9 @@ async def rank_candidates(request: RankRequest):
             candidates=request.candidates,
             modality=mkind.value,
         )
+
+        background_tasks.add_task(analytics.access, request.model)
+
         return results
 
     except Exception as e:
@@ -203,5 +229,27 @@ async def rank_candidates(request: RankRequest):
             "Failed to rank candidates. Check model ID, inputs, etc.\n"
             f"Details: {str(e)}"
         )
+        logger.error(msg)
+        raise HTTPException(status_code=500, detail=msg)
+
+
+@router.get("/stats", response_model=StatsResponse, tags=["stats"])
+async def get_stats():
+    """Get usage statistics for all models"""
+    try:
+        stats = await analytics.stats()
+
+        return {
+            "total": stats.get("total", {}),
+            "daily": stats.get(datetime.utcnow().strftime("%Y-%m-%d"), {}),
+            "weekly": stats.get(
+                f"{datetime.utcnow().year}-W{datetime.utcnow().strftime('%U')}", {}
+            ),
+            "monthly": stats.get(datetime.utcnow().strftime("%Y-%m"), {}),
+            "yearly": stats.get(datetime.utcnow().strftime("%Y"), {}),
+        }
+
+    except Exception as e:
+        msg = f"Failed to fetch analytics stats: {str(e)}"
         logger.error(msg)
         raise HTTPException(status_code=500, detail=msg)

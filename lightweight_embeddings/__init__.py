@@ -124,9 +124,21 @@ def call_embeddings_api(user_input: str, selected_model: str) -> str:
 
     try:
         data = response.json()
-        return json.dumps(data, indent=2)
+        return json.dumps(data, indent=2, ensure_ascii=False)
     except ValueError:
         return "❌ Failed to parse JSON from API response."
+
+
+def call_stats_api() -> str:
+    """
+    Calls the /v1/stats endpoint to retrieve analytics data.
+    Returns the JSON response as a formatted string.
+    """
+    url = "https://lamhieu-lightweight-embeddings.hf.space/v1/stats"
+    response = requests.get(url)
+    if response.status_code != 200:
+        raise ValueError(f"Failed to fetch stats: {response.text}")
+    return json.dumps(response.json(), indent=2, ensure_ascii=False)
 
 
 def create_main_interface():
@@ -147,10 +159,7 @@ def create_main_interface():
     ]
 
     with gr.Blocks(title="Lightweight Embeddings", theme="default") as demo:
-        # Project Info
-        gr.Markdown(APP_DESCRIPTION)
-
-        # Split Layout: Playground and cURL Examples
+        # ...existing code...
         with gr.Row():
             with gr.Column():
                 gr.Markdown("### 🔬 Try the Embeddings Playground")
@@ -171,7 +180,6 @@ def create_main_interface():
                     interactive=False,
                 )
 
-                # Link button to inference function
                 generate_btn.click(
                     fn=call_embeddings_api,
                     inputs=[input_text, model_dropdown],
@@ -213,6 +221,14 @@ def create_main_interface():
                   ```
                   """
                 )
+
+        # NEW STATS SECTION
+        with gr.Accordion("Analytics Stats"):
+            stats_btn = gr.Button("Get Stats")
+            stats_json = gr.Textbox(
+                label="Stats API Response", lines=10, interactive=False
+            )
+            stats_btn.click(fn=call_stats_api, inputs=[], outputs=stats_json)
 
     return demo
 
