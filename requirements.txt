@@ -7,4 +7,4 @@ sentence-transformers[onnx]==3.3.1
 sentencepiece==0.2.0
 torch==2.4.0
 transformers==4.45.0
-redis-py=5.2.1
+redis-py==5.2.1
