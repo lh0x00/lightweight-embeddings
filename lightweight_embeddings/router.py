@@ -124,14 +124,21 @@ class RankResponse(BaseModel):
     cosine_similarities: List[List[float]]
 
 
-class StatsResponse(BaseModel):
-    """Analytics stats response model"""
+class StatsBucket(BaseModel):
+    """Helper model for daily/weekly/monthly/yearly stats"""
 
     total: Dict[str, int]
     daily: Dict[str, int]
     weekly: Dict[str, int]
     monthly: Dict[str, int]
     yearly: Dict[str, int]
+
+
+class StatsResponse(BaseModel):
+    """Analytics stats response model, including both access and token counts"""
+
+    access: StatsBucket
+    tokens: StatsBucket
 
 
 service_config = ModelConfig()
@@ -235,20 +242,31 @@ async def rank_candidates(request: RankRequest, background_tasks: BackgroundTask
 
 @router.get("/stats", response_model=StatsResponse, tags=["stats"])
 async def get_stats():
-    """Get usage statistics for all models"""
+    """Get usage statistics for all models, including access and tokens."""
     try:
-        stats = await analytics.stats()
+        day_key = datetime.utcnow().strftime("%Y-%m-%d")
+        week_key = f"{datetime.utcnow().year}-W{datetime.utcnow().strftime('%U')}"
+        month_key = datetime.utcnow().strftime("%Y-%m")
+        year_key = datetime.utcnow().strftime("%Y")
+
+        stats_data = await analytics.stats()  # { "access": {...}, "tokens": {...} }
 
         return {
-            "total": stats.get("total", {}),
-            "daily": stats.get(datetime.utcnow().strftime("%Y-%m-%d"), {}),
-            "weekly": stats.get(
-                f"{datetime.utcnow().year}-W{datetime.utcnow().strftime('%U')}", {}
-            ),
-            "monthly": stats.get(datetime.utcnow().strftime("%Y-%m"), {}),
-            "yearly": stats.get(datetime.utcnow().strftime("%Y"), {}),
+            "access": {
+                "total": stats_data["access"].get("total", {}),
+                "daily": stats_data["access"].get(day_key, {}),
+                "weekly": stats_data["access"].get(week_key, {}),
+                "monthly": stats_data["access"].get(month_key, {}),
+                "yearly": stats_data["access"].get(year_key, {}),
+            },
+            "tokens": {
+                "total": stats_data["tokens"].get("total", {}),
+                "daily": stats_data["tokens"].get(day_key, {}),
+                "weekly": stats_data["tokens"].get(week_key, {}),
+                "monthly": stats_data["tokens"].get(month_key, {}),
+                "yearly": stats_data["tokens"].get(year_key, {}),
+            },
         }
-
     except Exception as e:
         msg = f"Failed to fetch analytics stats: {str(e)}"
         logger.error(msg)

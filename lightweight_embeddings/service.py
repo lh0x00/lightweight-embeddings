@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 from enum import Enum
-from typing import List, Union, Literal, Dict, Optional, NamedTuple
+from typing import List, Union, Literal, Dict, Optional, NamedTuple, Any
 from dataclasses import dataclass
 from pathlib import Path
 from io import BytesIO
@@ -191,7 +191,9 @@ class EmbeddingsService:
                 else:
                     # Fallback: standard HF loading
                     self.text_models[t_model_type] = SentenceTransformer(
-                        info.model_id, device=self.device, trust_remote_code=True,
+                        info.model_id,
+                        device=self.device,
+                        trust_remote_code=True,
                     )
 
             for i_model_type in ImageModelType:
@@ -347,35 +349,47 @@ class EmbeddingsService:
         candidates: List[str],
         modality: Literal["text", "image"],
         batch_size: Optional[int] = None,
-    ) -> Dict[str, List[List[float]]]:
+    ) -> Dict[str, Any]:
         """
         Rank candidates (always text) against the queries, which may be text or image.
-        Returns dict of { probabilities, cosine_similarities }.
+        Returns dict of { probabilities, cosine_similarities, usage }.
         """
+
         # 1) Generate embeddings for queries
         query_embeds = await self.generate_embeddings(queries, modality, batch_size)
         # 2) Generate embeddings for text candidates
         candidate_embeds = await self.generate_embeddings(candidates, "text")
 
-        # 3) Compute cosine sim
+        # 3) Compute cosine similarity
         sim_matrix = self.cosine_similarity(query_embeds, candidate_embeds)
+
         # 4) Apply logit scale + softmax
         scaled = np.exp(self.config.logit_scale) * sim_matrix
         probs = self.softmax(scaled)
 
+        # 5) Compute usage (similar to embeddings)
+        query_tokens = self.estimate_tokens(queries) if modality == "text" else 0
+        candidate_tokens = self.estimate_tokens(candidates) if modality == "text" else 0
+        total_tokens = query_tokens + candidate_tokens
+        usage = {
+            "prompt_tokens": total_tokens,
+            "total_tokens": total_tokens,
+        }
+
         return {
             "probabilities": probs.tolist(),
             "cosine_similarities": sim_matrix.tolist(),
+            "usage": usage,
         }
 
     def estimate_tokens(self, input_data: Union[str, List[str]]) -> int:
-      """
-      Estimate token count using the model's tokenizer.
-      """
-      texts = self._validate_text_input(input_data)
-      model = self.text_models[self.config.text_model_type]
-      tokenized = model.tokenize(texts)
-      return sum(len(ids) for ids in tokenized['input_ids'])
+        """
+        Estimate token count using the model's tokenizer.
+        """
+        texts = self._validate_text_input(input_data)
+        model = self.text_models[self.config.text_model_type]
+        tokenized = model.tokenize(texts)
+        return sum(len(ids) for ids in tokenized["input_ids"])
 
     @staticmethod
     def softmax(scores: np.ndarray) -> np.ndarray:

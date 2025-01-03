@@ -16,9 +16,14 @@ class Analytics:
         """
         self.pool = redis.ConnectionPool.from_url(redis_url, decode_responses=True)
         self.redis_client = redis.Redis(connection_pool=self.pool)
-        self.local_buffer = defaultdict(
-            lambda: defaultdict(int)
-        )  # {period: {model_id: count}}
+        self.local_buffer = {
+            "access": defaultdict(
+                lambda: defaultdict(int)
+            ),  # {period: {model_id: access_count}}
+            "tokens": defaultdict(
+                lambda: defaultdict(int)
+            ),  # {period: {model_id: tokens_count}}
+        }
         self.sync_interval = sync_interval
         self.lock = asyncio.Lock()  # Async lock for thread-safe updates
         asyncio.create_task(self._start_sync_task())
@@ -34,26 +39,48 @@ class Analytics:
         year_key = now.strftime("%Y")
         return day_key, week_key, month_key, year_key
 
-    async def access(self, model_id: str):
+    async def access(self, model_id: str, tokens: int):
         """
-        Records an access for a specific model_id.
+        Records an access and token usage for a specific model_id.
+
+        Parameters:
+        - model_id: The ID of the model being accessed.
+        - tokens: Number of tokens used in this access.
         """
         day_key, week_key, month_key, year_key = self._get_period_keys()
 
         async with self.lock:
-            self.local_buffer[day_key][model_id] += 1
-            self.local_buffer[week_key][model_id] += 1
-            self.local_buffer[month_key][model_id] += 1
-            self.local_buffer[year_key][model_id] += 1
-            self.local_buffer["total"][model_id] += 1
+            # Increment access count
+            self.local_buffer["access"][day_key][model_id] += 1
+            self.local_buffer["access"][week_key][model_id] += 1
+            self.local_buffer["access"][month_key][model_id] += 1
+            self.local_buffer["access"][year_key][model_id] += 1
+            self.local_buffer["access"]["total"][model_id] += 1
 
-    async def stats(self) -> Dict[str, Dict[str, int]]:
+            # Increment token count
+            self.local_buffer["tokens"][day_key][model_id] += tokens
+            self.local_buffer["tokens"][week_key][model_id] += tokens
+            self.local_buffer["tokens"][month_key][model_id] += tokens
+            self.local_buffer["tokens"][year_key][model_id] += tokens
+            self.local_buffer["tokens"]["total"][model_id] += tokens
+
+    async def stats(self) -> Dict[str, Dict[str, Dict[str, int]]]:
         """
         Returns statistics for all models from the local buffer.
+
+        Returns:
+        - A dictionary with access counts and token usage for each period.
         """
         async with self.lock:
             return {
-                period: dict(models) for period, models in self.local_buffer.items()
+                "access": {
+                    period: dict(models)
+                    for period, models in self.local_buffer["access"].items()
+                },
+                "tokens": {
+                    period: dict(models)
+                    for period, models in self.local_buffer["tokens"].items()
+                },
             }
 
     async def _sync_to_redis(self):
@@ -62,12 +89,22 @@ class Analytics:
         """
         async with self.lock:
             pipeline = self.redis_client.pipeline()
-            for period, models in self.local_buffer.items():
+
+            # Sync access counts
+            for period, models in self.local_buffer["access"].items():
                 for model_id, count in models.items():
-                    redis_key = f"analytics:{period}"
+                    redis_key = f"analytics:access:{period}"
                     pipeline.hincrby(redis_key, model_id, count)
+
+            # Sync token counts
+            for period, models in self.local_buffer["tokens"].items():
+                for model_id, count in models.items():
+                    redis_key = f"analytics:tokens:{period}"
+                    pipeline.hincrby(redis_key, model_id, count)
+
             await pipeline.execute()
-            self.local_buffer.clear()  # Clear the buffer after sync
+            self.local_buffer["access"].clear()  # Clear access buffer after sync
+            self.local_buffer["tokens"].clear()  # Clear tokens buffer after sync
 
     async def _start_sync_task(self):
         """

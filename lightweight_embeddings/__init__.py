@@ -72,9 +72,15 @@ The **Lightweight Embeddings API** is a fast, free, and multilingual service des
 - **Optimized and Flexible**: Built for speed with lightweight transformer models, efficient backends for rapid inference on low-resource systems, and support for diverse use cases with models.
 - **Production-Ready with Ease of Use**: Deploy effortlessly using Docker for a hassle-free setup, and experiment interactively through a **Gradio-powered playground** with comprehensive REST API documentation.  
 
+### 🔒 Privacy and Data Transparency
+
+- **Minimal Data Collection**: This API respects your privacy by design. It does not store or log any input data (text or images) provided by users. Only anonymous usage counts (IDs for statistical purposes) are recorded to monitor and improve the service.  
+- **Open Source and Transparent**: The API is fully open source, ensuring transparency and allowing users to inspect the code for themselves. This guarantees trust and confidence in how the service handles your data.  
+
 ### 🔗 Links
 - [Documentation]({__metadata__["docs"]}) | [GitHub]({__metadata__["github"]}) | [Playground]({__metadata__["spaces"]})
 """
+
 
 # Initialize FastAPI application
 app = FastAPI(
@@ -159,7 +165,7 @@ def create_main_interface():
     ]
 
     with gr.Blocks(title="Lightweight Embeddings", theme="default") as demo:
-        # ...existing code...
+        gr.Markdown(APP_DESCRIPTION)
         with gr.Row():
             with gr.Column():
                 gr.Markdown("### 🔬 Try the Embeddings Playground")
