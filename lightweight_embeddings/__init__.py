@@ -23,6 +23,9 @@ import gradio as gr
 import requests
 import json
 import logging
+import pandas as pd
+from typing import Tuple
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from gradio.routes import mount_gradio_app
@@ -131,16 +134,55 @@ def call_embeddings_api(user_input: str, selected_model: str) -> str:
         return "❌ Failed to parse JSON from API response."
 
 
-def call_stats_api() -> str:
+def call_stats_api_df() -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Calls the /v1/stats endpoint to retrieve analytics data.
-    Returns the JSON response as a formatted string.
+    Returns two DataFrames (access_df, tokens_df) constructed from the JSON response.
     """
     url = "https://lamhieu-lightweight-embeddings.hf.space/v1/stats"
+
+    # Fetch stats
     response = requests.get(url)
     if response.status_code != 200:
         raise ValueError(f"Failed to fetch stats: {response.text}")
-    return json.dumps(response.json(), indent=2, ensure_ascii=False)
+
+    data = response.json()
+    access_data = data["access"]
+    tokens_data = data["tokens"]
+
+    def build_stats_df(bucket: dict) -> pd.DataFrame:
+        """
+        Helper to build a DataFrame with columns: Model, total, daily, weekly, monthly, yearly.
+        bucket is a dictionary like data["access"] or data["tokens"] in the stats response.
+        """
+        all_models = set()
+        for time_range in ["total", "daily", "weekly", "monthly", "yearly"]:
+            all_models.update(bucket[time_range].keys())
+
+        # Prepare a data structure for DataFrame creation
+        result_dict = {
+            "Model": [],
+            "Total": [],
+            "Daily": [],
+            "Weekly": [],
+            "Monthly": [],
+            "Yearly": [],
+        }
+
+        for model in sorted(all_models):
+            result_dict["Model"].append(model)
+            result_dict["Total"].append(bucket["total"].get(model, 0))
+            result_dict["Daily"].append(bucket["daily"].get(model, 0))
+            result_dict["Weekly"].append(bucket["weekly"].get(model, 0))
+            result_dict["Monthly"].append(bucket["monthly"].get(model, 0))
+            result_dict["Yearly"].append(bucket["yearly"].get(model, 0))
+
+        df = pd.DataFrame(result_dict)
+        return df
+
+    access_df = build_stats_df(access_data)
+    tokens_df = build_stats_df(tokens_data)
+    return access_df, tokens_df
 
 
 def create_main_interface():
@@ -224,13 +266,22 @@ def create_main_interface():
                   """
                 )
 
-        # NEW STATS SECTION
+        # STATS SECTION: display stats in tables
         with gr.Accordion("Analytics Stats"):
             stats_btn = gr.Button("Get Stats")
-            stats_json = gr.Textbox(
-                label="Stats API Response", lines=10, interactive=False
+            access_df = gr.DataFrame(
+                label="Access Stats",
+                headers=["Model", "Total", "Daily", "Weekly", "Monthly", "Yearly"],
+                interactive=False,
             )
-            stats_btn.click(fn=call_stats_api, inputs=[], outputs=stats_json)
+            tokens_df = gr.DataFrame(
+                label="Token Stats",
+                headers=["Model", "Total", "Daily", "Weekly", "Monthly", "Yearly"],
+                interactive=False,
+            )
+            stats_btn.click(
+                fn=call_stats_api_df, inputs=[], outputs=[access_df, tokens_df]
+            )
 
     return demo
 
