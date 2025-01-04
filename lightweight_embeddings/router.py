@@ -147,7 +147,7 @@ embeddings_service = EmbeddingsService(config=service_config)
 analytics = Analytics(
     url=os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
     token=os.environ.get("REDIS_TOKEN", "***"),
-    sync_interval=60,
+    sync_interval=5 * 60, # 5 minutes
 )
 
 
