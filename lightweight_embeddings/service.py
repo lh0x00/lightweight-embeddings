@@ -155,7 +155,7 @@ class EmbeddingsService:
     """
 
     def __init__(self, config: Optional[ModelConfig] = None):
-        self.lru_cache = LRUCache(maxsize=50_000)  # Approximate for ~500MB usage
+        self.lru_cache = LRUCache(maxsize=10_000)  # Approximate for ~100MB usage
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.config = config or ModelConfig()
