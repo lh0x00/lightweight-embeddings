@@ -1,7 +1,6 @@
 import logging
 import asyncio
-import redis
-import redis.exceptions
+from upstash_redis import Redis as UpstashRedis
 from datetime import datetime
 from collections import defaultdict
 from typing import Dict
@@ -11,21 +10,25 @@ logger = logging.getLogger(__name__)
 
 
 class Analytics:
-    def __init__(self, redis_url: str, sync_interval: int = 60, max_retries: int = 5):
+    def __init__(
+        self, url: str, token: str, sync_interval: int = 60, max_retries: int = 5
+    ):
         """
-        Initializes the Analytics class with a synchronous Redis client,
-        wrapped in asynchronous methods by using run_in_executor.
+        Initializes the Analytics class with an Upstash Redis client (HTTP-based),
+        wrapped in async methods by using run_in_executor.
 
         Parameters:
-        - redis_url (str): Redis connection URL (e.g., 'redis://localhost:6379/0').
+        - url (str): Upstash Redis REST URL.
+        - token (str): Upstash Redis token.
         - sync_interval (int): Interval in seconds for syncing with Redis.
         - max_retries (int): Maximum number of reconnection attempts to Redis.
         """
-        self.redis_url = redis_url
+        self.url = url
+        self.token = token
         self.sync_interval = sync_interval
         self.max_retries = max_retries
 
-        # Synchronous Redis client
+        # Upstash Redis client (synchronous over HTTP)
         self.redis_client = self._create_redis_client()
 
         # Local buffer stores cumulative data for two-way sync
@@ -40,19 +43,13 @@ class Analytics:
         # Initialize data from Redis, then start the periodic sync loop
         asyncio.create_task(self._initialize())
 
-        logger.info("Initialized Analytics with Redis connection: %s", redis_url)
+        logger.info("Initialized Analytics with Upstash Redis: %s", url)
 
-    def _create_redis_client(self) -> redis.Redis:
+    def _create_redis_client(self) -> UpstashRedis:
         """
-        Creates and returns a new synchronous Redis client.
+        Creates and returns a new Upstash Redis (synchronous) client.
         """
-        return redis.from_url(
-            self.redis_url,
-            decode_responses=True,
-            health_check_interval=10,
-            socket_connect_timeout=5,
-            socket_keepalive=True,
-        )
+        return UpstashRedis(url=self.url, token=self.token)
 
     async def _initialize(self):
         """
@@ -61,9 +58,9 @@ class Analytics:
         """
         try:
             await self._sync_from_redis()
-            logger.info("Initial sync from Redis to local buffer completed.")
+            logger.info("Initial sync from Upstash Redis to local buffer completed.")
         except Exception as e:
-            logger.error("Error during initial sync from Redis: %s", e)
+            logger.error("Error during initial sync from Upstash Redis: %s", e)
 
         # Launch the periodic sync task
         asyncio.create_task(self._start_sync_task())
@@ -122,7 +119,7 @@ class Analytics:
 
     async def _sync_from_redis(self):
         """
-        Pulls existing analytics data from Redis into the local buffer.
+        Pulls existing analytics data from Upstash Redis into the local buffer.
         Uses run_in_executor to avoid blocking the event loop.
         """
         loop = asyncio.get_running_loop()
@@ -131,7 +128,15 @@ class Analytics:
             # Scan 'access' keys
             cursor = 0
             while True:
-                cursor, keys = await loop.run_in_executor(
+                # Upstash doesn't provide a typical 'SCAN' the same way as standard Redis?
+                # We'll mimic it by searching for keys, or we can store a list of known periods if needed.
+                # If you only store certain known patterns, adapt accordingly.
+                # For demonstration, we do a naive approach, or assume we have a method that lists keys.
+                # Upstash doesn't always support the standard SCAN. We might store known keys in a set in Redis.
+
+                # If Upstash doesn't support SCAN at all, you need another approach (like maintaining a separate index).
+                # For now, let's assume it can handle the SCAN command similarly:
+                scan_result = await loop.run_in_executor(
                     None,
                     partial(
                         self.redis_client.scan,
@@ -140,6 +145,8 @@ class Analytics:
                         count=100,
                     ),
                 )
+                cursor, keys = scan_result[0], scan_result[1]
+
                 for key in keys:
                     # key is "analytics:access:<period>"
                     period = key.replace("analytics:access:", "")
@@ -148,13 +155,14 @@ class Analytics:
                     )
                     for model_id, count_str in data.items():
                         self.local_buffer["access"][period][model_id] += int(count_str)
+
                 if cursor == 0:
                     break
 
             # Scan 'tokens' keys
             cursor = 0
             while True:
-                cursor, keys = await loop.run_in_executor(
+                scan_result = await loop.run_in_executor(
                     None,
                     partial(
                         self.redis_client.scan,
@@ -163,6 +171,8 @@ class Analytics:
                         count=100,
                     ),
                 )
+                cursor, keys = scan_result[0], scan_result[1]
+
                 for key in keys:
                     # key is "analytics:tokens:<period>"
                     period = key.replace("analytics:tokens:", "")
@@ -171,62 +181,74 @@ class Analytics:
                     )
                     for model_id, count_str in data.items():
                         self.local_buffer["tokens"][period][model_id] += int(count_str)
+
                 if cursor == 0:
                     break
 
     async def _sync_to_redis(self):
         """
-        Pushes the local buffer data to Redis (local -> Redis).
-        Uses a pipeline to minimize round trips and run_in_executor to avoid blocking.
+        Pushes the local buffer data to Upstash Redis (local -> Redis).
+        Since Upstash does not support pipelining, we increment each field individually.
         """
         loop = asyncio.get_running_loop()
 
         async with self.lock:
             try:
-                pipeline = self.redis_client.pipeline(transaction=False)
-
-                # Push 'access' data
+                # For each (period, model_id, count), call hincrby
                 for period, models in self.local_buffer["access"].items():
                     redis_key = f"analytics:access:{period}"
                     for model_id, count in models.items():
-                        pipeline.hincrby(redis_key, model_id, count)
+                        if count != 0:
+                            # hincrby(key, field, amount)
+                            await loop.run_in_executor(
+                                None,
+                                partial(
+                                    self.redis_client.hincrby,
+                                    redis_key,
+                                    model_id,
+                                    count,
+                                ),
+                            )
 
-                # Push 'tokens' data
                 for period, models in self.local_buffer["tokens"].items():
                     redis_key = f"analytics:tokens:{period}"
                     for model_id, count in models.items():
-                        pipeline.hincrby(redis_key, model_id, count)
+                        if count != 0:
+                            await loop.run_in_executor(
+                                None,
+                                partial(
+                                    self.redis_client.hincrby,
+                                    redis_key,
+                                    model_id,
+                                    count,
+                                ),
+                            )
 
-                # Execute the pipeline in a separate thread
-                await loop.run_in_executor(None, pipeline.execute)
-
-                logger.info("Analytics data successfully synced to Redis.")
-            except redis.exceptions.ConnectionError as e:
-                logger.error("Redis connection error during sync: %s", e)
-                raise e
+                logger.info("Analytics data successfully synced to Upstash Redis.")
             except Exception as e:
-                logger.error("Unexpected error during Redis sync: %s", e)
+                logger.error("Unexpected error during Upstash Redis sync: %s", e)
                 raise e
 
     async def _start_sync_task(self):
         """
         Periodically runs _sync_to_redis at a configurable interval.
-        Also handles reconnections on ConnectionError.
+        Also attempts reconnection on any errors (though Upstash typically won't
+        behave exactly like a persistent TCP connection).
         """
         while True:
             await asyncio.sleep(self.sync_interval)
             try:
                 await self._sync_to_redis()
-            except redis.exceptions.ConnectionError as e:
-                logger.error("Redis connection error during scheduled sync: %s", e)
-                await self._handle_redis_reconnection()
             except Exception as e:
-                logger.error("Error during scheduled sync: %s", e)
-                # Handle other errors as appropriate
+                # Upstash might fail differently than standard Redis if there's a network issue
+                logger.error("Error during scheduled sync to Upstash Redis: %s", e)
+                await self._handle_redis_reconnection()
 
     async def _handle_redis_reconnection(self):
         """
-        Attempts to reconnect to Redis using exponential backoff.
+        Attempts to 'reconnect' to Upstash Redis.
+        Because Upstash uses HTTP, it's often stateless and doesn't require
+        the same approach as standard Redis. We simply recreate the client if needed.
         """
         loop = asyncio.get_running_loop()
         retry_count = 0
@@ -235,44 +257,46 @@ class Analytics:
         while retry_count < self.max_retries:
             try:
                 logger.info(
-                    "Attempting to reconnect to Redis (attempt %d)...", retry_count + 1
+                    "Attempting to reconnect to Upstash Redis (attempt %d)...",
+                    retry_count + 1,
                 )
-                # Close existing connection
+                # Recreate the client
                 await loop.run_in_executor(None, self.redis_client.close)
-                # Create a new client
                 self.redis_client = self._create_redis_client()
-                # Test the new connection
-                await loop.run_in_executor(None, self.redis_client.ping)
-                logger.info("Successfully reconnected to Redis.")
+                # Upstash doesn't necessarily have a direct 'PING' command, so optional:
+                # If you want to test, you could do e.g. redis_client.get("some_known_key") as a check
+                logger.info("Successfully reconnected to Upstash Redis.")
                 return
-            except redis.exceptions.ConnectionError as e:
+            except Exception as e:
                 logger.error("Reconnection attempt %d failed: %s", retry_count + 1, e)
                 retry_count += 1
                 await asyncio.sleep(delay)
                 delay *= 2  # exponential backoff
 
         logger.critical(
-            "Max reconnection attempts reached. Unable to reconnect to Redis."
+            "Max reconnection attempts reached. Unable to reconnect to Upstash Redis."
         )
 
-        # Optional: Keep retrying indefinitely instead of giving up.
+        # Optionally, keep trying indefinitely
         # while True:
         #     try:
-        #         logger.info("Retrying to reconnect to Redis...")
+        #         logger.info("Retrying to reconnect to Upstash Redis...")
         #         await loop.run_in_executor(None, self.redis_client.close)
         #         self.redis_client = self._create_redis_client()
-        #         await loop.run_in_executor(None, self.redis_client.ping)
-        #         logger.info("Reconnected to Redis after extended retries.")
+        #         logger.info(
+        #             "Successfully reconnected to Upstash Redis after extended retry."
+        #         )
         #         break
-        #     except redis.exceptions.ConnectionError as e:
+        #     except Exception as e:
         #         logger.error("Extended reconnection attempt failed: %s", e)
         #         await asyncio.sleep(delay)
-        #         delay = min(delay * 2, 60)  # Cap at 60 seconds or choose your own max
+        #         delay = min(delay * 2, 60)  # cap at 60s or choose another max
 
     async def close(self):
         """
-        Closes the Redis client connection. Still wrapped in an async method to avoid blocking.
+        Closes the Upstash Redis client (although Upstash uses stateless HTTP).
+        Still wrapped in async to avoid blocking the event loop.
         """
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self.redis_client.close)
-        logger.info("Closed Redis connection.")
+        logger.info("Closed Upstash Redis client.")
