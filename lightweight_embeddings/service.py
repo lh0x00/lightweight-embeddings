@@ -32,6 +32,8 @@ from typing import List, Union, Literal, Dict, Optional, NamedTuple, Any
 from dataclasses import dataclass
 from pathlib import Path
 from io import BytesIO
+from hashlib import md5
+from cachetools import LRUCache
 
 import requests
 import numpy as np
@@ -153,6 +155,8 @@ class EmbeddingsService:
     """
 
     def __init__(self, config: Optional[ModelConfig] = None):
+        self.lru_cache = LRUCache(maxsize=50_000)  # Approximate for ~500MB usage
+
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.config = config or ModelConfig()
 
@@ -262,11 +266,19 @@ class EmbeddingsService:
 
     def _generate_text_embeddings(self, texts: List[str]) -> np.ndarray:
         """
-        Generate text embeddings using the currently configured text model.
+        Generate text embeddings using the currently configured text model
+        with an LRU cache for single-text requests.
         """
         try:
+            if len(texts) == 1:
+                key = md5(texts[0].encode("utf-8")).hexdigest()
+                if key in self.lru_cache:
+                    return self.lru_cache[key]
             model = self.text_models[self.config.text_model_type]
-            embeddings = model.encode(texts)  # shape: (num_items, emb_dim)
+            embeddings = model.encode(texts)
+
+            if len(texts) == 1:
+                self.lru_cache[key] = embeddings
             return embeddings
         except Exception as e:
             raise RuntimeError(

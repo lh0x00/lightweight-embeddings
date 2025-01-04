@@ -19,8 +19,14 @@ class Analytics:
         - redis_url: Redis connection URL (e.g., 'redis://localhost:6379/0')
         - sync_interval: Interval in seconds for syncing with Redis.
         """
-        self.pool = redis.ConnectionPool.from_url(redis_url, decode_responses=True)
-        self.redis_client = redis.Redis(connection_pool=self.pool)
+        self.redis_client = redis.from_url(
+            redis_url,
+            decode_responses=True,
+            health_check_interval=10,
+            socket_connect_timeout=5,
+            retry_on_timeout=True,
+            socket_keepalive=True,
+        )
         self.local_buffer = {
             "access": defaultdict(
                 lambda: defaultdict(int)
@@ -122,5 +128,4 @@ class Analytics:
                 await self._sync_to_redis()
             except redis.exceptions.ConnectionError as e:
                 logger.error("Redis connection error: %s", e)
-                self.pool.disconnect()  # force reconnect on next request
                 await asyncio.sleep(5)
