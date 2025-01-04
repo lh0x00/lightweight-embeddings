@@ -171,8 +171,6 @@ async def create_embeddings(
             input_data=request.input, modality=mkind.value
         )
 
-        background_tasks.add_task(analytics.access, request.model)
-
         # 4) Estimate tokens for text only
         total_tokens = 0
         if mkind == ModelKind.TEXT:
@@ -187,6 +185,10 @@ async def create_embeddings(
                 "total_tokens": total_tokens,
             },
         }
+
+        background_tasks.add_task(
+            analytics.access, request.model, resp["usage"]["total_tokens"]
+        )
 
         for idx, emb in enumerate(embeddings):
             resp["data"].append(
@@ -227,7 +229,9 @@ async def rank_candidates(request: RankRequest, background_tasks: BackgroundTask
             modality=mkind.value,
         )
 
-        background_tasks.add_task(analytics.access, request.model)
+        background_tasks.add_task(
+            analytics.access, request.model, results["usage"]["total_tokens"]
+        )
 
         return results
 

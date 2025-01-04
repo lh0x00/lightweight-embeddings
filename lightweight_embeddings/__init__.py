@@ -63,21 +63,17 @@ EMBEDDINGS_API_URL = "http://localhost:7860/v1/embeddings"
 APP_DESCRIPTION = f"""
 # 🚀 **Lightweight Embeddings API**  
 
-The **Lightweight Embeddings API** is a fast, free, and multilingual service designed for generating embeddings and reranking with support for both **text** and **image** inputs. Get started below by exploring our interactive playground or using the cURL examples provided.
+The **Lightweight Embeddings API** is a fast, free, and multilingual service designed for generating embeddings and reranking with support for both **text** and **image** inputs.
 
-### ✨ Key Features
+### ✨ Features & Privacy
 
-- **Free, Unlimited, and Multilingual**: A fully free API service with no usage limits, capable of processing text in over 100+ languages to support global applications seamlessly.  
-- **Advanced Embedding and Reranking**: Generate high-quality text and image-text embeddings using state-of-the-art models, alongside robust reranking capabilities for enhanced results.  
-- **Optimized and Flexible**: Built for speed with lightweight transformer models, efficient backends for rapid inference on low-resource systems, and support for diverse use cases with models.
-- **Production-Ready with Ease of Use**: Deploy effortlessly using Docker for a hassle-free setup, and experiment interactively through a **Gradio-powered playground** with comprehensive REST API documentation.  
+- **Free & Multilingual**: Unlimited API service supporting 100+ languages with no usage restrictions
+- **Advanced Processing**: High-quality text and image-text embeddings using state-of-the-art models with reranking capabilities
+- **Privacy-First**: No storage of input data (text/images), only anonymous usage statistics for service improvement
+- **Production-Ready**: Docker deployment, interactive Gradio playground, and comprehensive REST API documentation
+- **Open & Efficient**: Fully open-source codebase using lightweight transformer models for rapid inference
 
-### 🔒 Privacy and Data Transparency
-
-- **Minimal Data Collection**: This API respects your privacy by design. It does not store or log any input data (text or images) provided by users. Only anonymous usage counts (IDs for statistical purposes) are recorded to monitor and improve the service.  
-- **Open Source and Transparent**: The API is fully open source, ensuring transparency and allowing users to inspect the code for themselves. This guarantees trust and confidence in how the service handles your data.  
-
-### 🔗 Links
+### 🔗 Resources
 - [Documentation]({__metadata__["docs"]}) | [GitHub]({__metadata__["github"]}) | [Playground]({__metadata__["spaces"]})
 """
 
