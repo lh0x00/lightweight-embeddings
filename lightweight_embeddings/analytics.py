@@ -115,7 +115,7 @@ class Analytics:
                     redis_key = f"analytics:tokens:{period}"
                     pipeline.hincrby(redis_key, model_id, count)
 
-            await pipeline.execute()
+            pipeline.execute()
             self.local_buffer["access"].clear()  # Clear access buffer after sync
             self.local_buffer["tokens"].clear()  # Clear tokens buffer after sync
             logger.info("Synced analytics data to Redis.")
