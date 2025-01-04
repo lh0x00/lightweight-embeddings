@@ -38,6 +38,8 @@ class Analytics:
         self.sync_interval = sync_interval
         self.lock = asyncio.Lock()  # Async lock for thread-safe updates
         asyncio.create_task(self._start_sync_task())
+        
+        logger.info("Initialized Analytics with Redis connection: %s", redis_url)
 
     def _get_period_keys(self) -> tuple:
         """
