@@ -239,8 +239,6 @@ class Analytics:
                 )
                 # Close existing connection
                 await loop.run_in_executor(None, self.redis_client.close)
-                if self.redis_client is not None:
-                    await self.close()
                 # Create a new client
                 self.redis_client = self._create_redis_client()
                 # Test the new connection
@@ -258,20 +256,18 @@ class Analytics:
         )
 
         # Optional: Keep retrying indefinitely instead of giving up.
-        while True:
-            try:
-                logger.info("Retrying to reconnect to Redis...")
-                await loop.run_in_executor(None, self.redis_client.close)
-                if self.redis_client is not None:
-                    await self.close()
-                self.redis_client = self._create_redis_client()
-                await loop.run_in_executor(None, self.redis_client.ping)
-                logger.info("Reconnected to Redis after extended retries.")
-                break
-            except redis.exceptions.ConnectionError as e:
-                logger.error("Extended reconnection attempt failed: %s", e)
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, 60)  # Cap at 60 seconds or choose your own max
+        # while True:
+        #     try:
+        #         logger.info("Retrying to reconnect to Redis...")
+        #         await loop.run_in_executor(None, self.redis_client.close)
+        #         self.redis_client = self._create_redis_client()
+        #         await loop.run_in_executor(None, self.redis_client.ping)
+        #         logger.info("Reconnected to Redis after extended retries.")
+        #         break
+        #     except redis.exceptions.ConnectionError as e:
+        #         logger.error("Extended reconnection attempt failed: %s", e)
+        #         await asyncio.sleep(delay)
+        #         delay = min(delay * 2, 60)  # Cap at 60 seconds or choose your own max
 
     async def close(self):
         """
