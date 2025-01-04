@@ -1,8 +1,13 @@
+import logging
 import asyncio
 import redis.asyncio as redis
+import redis.exceptions
 from datetime import datetime
 from collections import defaultdict
 from typing import Dict
+
+
+logger = logging.getLogger(__name__)
 
 
 class Analytics:
@@ -105,6 +110,7 @@ class Analytics:
             await pipeline.execute()
             self.local_buffer["access"].clear()  # Clear access buffer after sync
             self.local_buffer["tokens"].clear()  # Clear tokens buffer after sync
+            logger.info("Synced analytics data to Redis.")
 
     async def _start_sync_task(self):
         """
@@ -112,4 +118,9 @@ class Analytics:
         """
         while True:
             await asyncio.sleep(self.sync_interval)
-            await self._sync_to_redis()
+            try:
+                await self._sync_to_redis()
+            except redis.exceptions.ConnectionError as e:
+                logger.error("Redis connection error: %s", e)
+                self.pool.disconnect()  # force reconnect on next request
+                await asyncio.sleep(5)
