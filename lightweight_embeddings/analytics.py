@@ -239,6 +239,8 @@ class Analytics:
                 )
                 # Close existing connection
                 await loop.run_in_executor(None, self.redis_client.close)
+                if self.redis_client is not None:
+                    await self.close()
                 # Create a new client
                 self.redis_client = self._create_redis_client()
                 # Test the new connection
@@ -260,6 +262,8 @@ class Analytics:
             try:
                 logger.info("Retrying to reconnect to Redis...")
                 await loop.run_in_executor(None, self.redis_client.close)
+                if self.redis_client is not None:
+                    await self.close()
                 self.redis_client = self._create_redis_client()
                 await loop.run_in_executor(None, self.redis_client.ping)
                 logger.info("Reconnected to Redis after extended retries.")
