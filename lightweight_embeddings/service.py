@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 from enum import Enum
-from typing import List, Union, Literal, Dict, Optional, NamedTuple, Any
+from typing import List, Union, Dict, Optional, NamedTuple, Any
 from dataclasses import dataclass
 from pathlib import Path
 from io import BytesIO
@@ -149,6 +149,28 @@ class ModelConfig:
         return image_configs[self.image_model_type]
 
 
+class ModelKind(str, Enum):
+    TEXT = "text"
+    IMAGE = "image"
+
+
+def detect_model_kind(model_id: str) -> ModelKind:
+    """
+    Detect whether model_id is for a text or an image model.
+    Raises ValueError if unrecognized.
+    """
+    if model_id in [m.value for m in TextModelType]:
+        return ModelKind.TEXT
+    elif model_id in [m.value for m in ImageModelType]:
+        return ModelKind.IMAGE
+    else:
+        raise ValueError(
+            f"Unrecognized model ID: {model_id}.\n"
+            f"Valid text: {[m.value for m in TextModelType]}\n"
+            f"Valid image: {[m.value for m in ImageModelType]}"
+        )
+
+
 class EmbeddingsService:
     """
     Service for generating text/image embeddings and performing ranking.
@@ -264,7 +286,11 @@ class EmbeddingsService:
         except Exception as e:
             raise ValueError(f"Error processing image '{path_or_url}': {str(e)}") from e
 
-    def _generate_text_embeddings(self, texts: List[str]) -> np.ndarray:
+    def _generate_text_embeddings(
+        self,
+        model_id: TextModelType,
+        texts: List[str],
+    ) -> np.ndarray:
         """
         Generate text embeddings using the currently configured text model
         with an LRU cache for single-text requests.
@@ -274,7 +300,7 @@ class EmbeddingsService:
                 key = md5(texts[0].encode("utf-8")).hexdigest()
                 if key in self.lru_cache:
                     return self.lru_cache[key]
-            model = self.text_models[self.config.text_model_type]
+            model = self.text_models[model_id]
             embeddings = model.encode(texts)
 
             if len(texts) == 1:
@@ -287,6 +313,7 @@ class EmbeddingsService:
 
     def _generate_image_embeddings(
         self,
+        model_id: ImageModelType,
         images: Union[str, List[str]],
         batch_size: Optional[int] = None,
     ) -> np.ndarray:
@@ -295,7 +322,7 @@ class EmbeddingsService:
         If `batch_size` is None, all images are processed at once.
         """
         try:
-            model = self.image_models[self.config.image_model_type]
+            model = self.image_models[model_id]
 
             # Single image
             if isinstance(images, str):
@@ -341,36 +368,57 @@ class EmbeddingsService:
 
     async def generate_embeddings(
         self,
-        input_data: Union[str, List[str]],
-        modality: Literal["text", "image"],
+        model: str,
+        inputs: Union[str, List[str]],
         batch_size: Optional[int] = None,
     ) -> np.ndarray:
         """
         Asynchronously generate embeddings for text or image.
         """
+        # Determine if it's text or image
+        modality = detect_model_kind(model)
+        model_id = (
+            TextModelType(model)
+            if modality == ModelKind.TEXT
+            else ImageModelType(model)
+        )
+
         self._validate_modality(modality)
-        if modality == "text":
-            text_list = self._validate_text_input(input_data)
-            return self._generate_text_embeddings(text_list)
-        else:
-            return self._generate_image_embeddings(input_data, batch_size=batch_size)
+        if modality == "text" and isinstance(model_id, TextModelType):
+            text_list = self._validate_text_input(inputs)
+            return self._generate_text_embeddings(model_id=model_id, texts=text_list)
+        elif modality == "image" and isinstance(model_id, ImageModelType):
+            return self._generate_image_embeddings(
+                model_id=model_id, images=inputs, batch_size=batch_size
+            )
 
     async def rank(
         self,
+        model: str,
         queries: Union[str, List[str]],
         candidates: List[str],
-        modality: Literal["text", "image"],
         batch_size: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Rank candidates (always text) against the queries, which may be text or image.
         Returns dict of { probabilities, cosine_similarities, usage }.
         """
+        # Determine if it's text or image
+        modality = detect_model_kind(model)
+        model_id = (
+            TextModelType(model)
+            if modality == ModelKind.TEXT
+            else ImageModelType(model)
+        )
 
         # 1) Generate embeddings for queries
-        query_embeds = await self.generate_embeddings(queries, modality, batch_size)
+        query_embeds = await self.generate_embeddings(
+            model=model_id, inputs=queries, batch_size=batch_size
+        )
         # 2) Generate embeddings for text candidates
-        candidate_embeds = await self.generate_embeddings(candidates, "text")
+        candidate_embeds = await self.generate_embeddings(
+            model=model_id, inputs=candidates, batch_size=batch_size
+        )
 
         # 3) Compute cosine similarity
         sim_matrix = self.cosine_similarity(query_embeds, candidate_embeds)

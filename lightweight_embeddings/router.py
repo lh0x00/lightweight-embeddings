@@ -21,8 +21,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Dict, Any, List, Union
-from enum import Enum
+from typing import Dict, List, Union
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -32,8 +31,9 @@ from .analytics import Analytics
 from .service import (
     ModelConfig,
     TextModelType,
-    ImageModelType,
     EmbeddingsService,
+    ModelKind,
+    detect_model_kind,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,28 +42,6 @@ router = APIRouter(
     tags=["v1"],
     responses={404: {"description": "Not found"}},
 )
-
-
-class ModelKind(str, Enum):
-    TEXT = "text"
-    IMAGE = "image"
-
-
-def detect_model_kind(model_id: str) -> ModelKind:
-    """
-    Detect whether model_id is for a text or an image model.
-    Raises ValueError if unrecognized.
-    """
-    if model_id in [m.value for m in TextModelType]:
-        return ModelKind.TEXT
-    elif model_id in [m.value for m in ImageModelType]:
-        return ModelKind.IMAGE
-    else:
-        raise ValueError(
-            f"Unrecognized model ID: {model_id}.\n"
-            f"Valid text: {[m.value for m in TextModelType]}\n"
-            f"Valid image: {[m.value for m in ImageModelType]}"
-        )
 
 
 class EmbeddingRequest(BaseModel):
@@ -147,7 +125,7 @@ embeddings_service = EmbeddingsService(config=service_config)
 analytics = Analytics(
     url=os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
     token=os.environ.get("REDIS_TOKEN", "***"),
-    sync_interval=5 * 60, # 5 minutes
+    sync_interval=5 * 60,  # 5 minutes
 )
 
 
@@ -159,23 +137,15 @@ async def create_embeddings(
     Generates embeddings for the given input (text or image).
     """
     try:
-        # 1) Determine if it's text or image
-        mkind = detect_model_kind(request.model)
-
-        # 2) Update global service config so it uses the correct model
-        if mkind == ModelKind.TEXT:
-            service_config.text_model_type = TextModelType(request.model)
-        else:
-            service_config.image_model_type = ImageModelType(request.model)
-
-        # 3) Generate
+        modality = detect_model_kind(request.model)
         embeddings = await embeddings_service.generate_embeddings(
-            input_data=request.input, modality=mkind.value
+            inputs=request.input,
+            model=request.model,
         )
 
-        # 4) Estimate tokens for text only
+        # Estimate tokens for text only
         total_tokens = 0
-        if mkind == ModelKind.TEXT:
+        if modality == ModelKind.TEXT:
             total_tokens = embeddings_service.estimate_tokens(request.input)
 
         resp = {
@@ -218,17 +188,10 @@ async def rank_candidates(request: RankRequest, background_tasks: BackgroundTask
     Ranks candidate texts against the given queries (which can be text or image).
     """
     try:
-        mkind = detect_model_kind(request.model)
-
-        if mkind == ModelKind.TEXT:
-            service_config.text_model_type = TextModelType(request.model)
-        else:
-            service_config.image_model_type = ImageModelType(request.model)
-
         results = await embeddings_service.rank(
+            model=request.model,
             queries=request.queries,
             candidates=request.candidates,
-            modality=mkind.value,
         )
 
         background_tasks.add_task(
