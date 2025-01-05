@@ -282,7 +282,7 @@ class EmbeddingsService:
         try:
             if len(texts) == 1:
                 single_text = texts[0]
-                key = md5(single_text.encode("utf-8")).hexdigest()
+                key = md5(f"{model_id}:{single_text}".encode("utf-8")).hexdigest()[:8]
                 if key in self.lru_cache:
                     return self.lru_cache[key]
 

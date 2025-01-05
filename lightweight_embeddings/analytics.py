@@ -154,7 +154,7 @@ class Analytics:
                         None, partial(self.redis_client.hgetall, key)
                     )
                     for model_id, count_str in data.items():
-                        self.local_buffer["access"][period][model_id] += int(count_str)
+                        self.local_buffer["access"][period][model_id] = int(count_str)
 
                 if cursor == 0:
                     break
@@ -180,7 +180,7 @@ class Analytics:
                         None, partial(self.redis_client.hgetall, key)
                     )
                     for model_id, count_str in data.items():
-                        self.local_buffer["tokens"][period][model_id] += int(count_str)
+                        self.local_buffer["tokens"][period][model_id] = int(count_str)
 
                 if cursor == 0:
                     break
