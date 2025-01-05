@@ -235,7 +235,7 @@ def create_main_interface():
                     """
                   ### 🛠️ cURL Examples
 
-                  **Generate Embeddings**
+                  **Generate Embeddings (OpenAI compatible)**
                   ```bash
                   curl -X 'POST' \\
                     'https://lamhieu-lightweight-embeddings.hf.space/v1/embeddings' \\
