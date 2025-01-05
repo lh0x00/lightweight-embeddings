@@ -1,22 +1,3 @@
-"""
-FastAPI Router for Embeddings Service (Revised & Simplified)
-
-Exposes the EmbeddingsService methods via a RESTful API.
-
-Supported Text Model IDs:
-- "multilingual-e5-small"
-- "multilingual-e5-base"
-- "multilingual-e5-large"
-- "snowflake-arctic-embed-l-v2.0"
-- "paraphrase-multilingual-MiniLM-L12-v2"
-- "paraphrase-multilingual-mpnet-base-v2"
-- "bge-m3"
-- "gte-multilingual-base"
-
-Supported Image Model IDs:
-- "siglip-base-patch16-256-multilingual"
-"""
-
 from __future__ import annotations
 
 import logging
@@ -158,10 +139,6 @@ async def create_embeddings(
             },
         }
 
-        background_tasks.add_task(
-            analytics.access, request.model, resp["usage"]["total_tokens"]
-        )
-
         for idx, emb in enumerate(embeddings):
             resp["data"].append(
                 {
@@ -170,6 +147,10 @@ async def create_embeddings(
                     "embedding": emb.tolist(),
                 }
             )
+
+        background_tasks.add_task(
+            analytics.access, request.model, resp["usage"]["total_tokens"]
+        )
 
         return resp
 
