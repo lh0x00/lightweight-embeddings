@@ -79,7 +79,7 @@ The API will now be accessible at `http://localhost:7860`.
 
 ## 👥 Contributors
 
-- **lamhieu** – Creator and Maintainer ([GitHub](https://github.com/lh0x00))
+- **lamhieu / lh0x00** – Creator and Maintainer ([GitHub](https://github.com/lh0x00), [HuggingFace](https://huggingface.co/lamhieu))
 
 Contributions are welcome! Check out the [contribution guidelines](https://github.com/lh0x00/lightweight-embeddings/blob/main/CONTRIBUTING.md).
 
