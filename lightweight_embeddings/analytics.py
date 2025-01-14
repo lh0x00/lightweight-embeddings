@@ -142,7 +142,7 @@ class Analytics:
                         self.redis_client.scan,
                         cursor=cursor,
                         match="analytics:access:*",
-                        count=100,
+                        count=1000,
                     ),
                 )
                 cursor, keys = scan_result[0], scan_result[1]
@@ -168,7 +168,7 @@ class Analytics:
                         self.redis_client.scan,
                         cursor=cursor,
                         match="analytics:tokens:*",
-                        count=100,
+                        count=1000,
                     ),
                 )
                 cursor, keys = scan_result[0], scan_result[1]

@@ -6,7 +6,6 @@ colorTo: indigo
 sdk: docker
 app_file: app.py
 pinned: false
-header: mini
 ---
 
 # 🌍 LightweightEmbeddings: Multilingual, Fast, and Unlimited
