@@ -1,3 +1,5 @@
+# filename: analytics.py
+
 import logging
 import asyncio
 from upstash_redis import Redis as UpstashRedis
@@ -31,8 +33,14 @@ class Analytics:
         # Upstash Redis client (synchronous over HTTP)
         self.redis_client = self._create_redis_client()
 
-        # Local buffer stores cumulative data for two-way sync
-        self.local_buffer = {
+        # current_totals holds the absolute counters (loaded from Redis)
+        self.current_totals = {
+            "access": defaultdict(lambda: defaultdict(int)),
+            "tokens": defaultdict(lambda: defaultdict(int)),
+        }
+
+        # new_increments holds only the new usage since last sync
+        self.new_increments = {
             "access": defaultdict(lambda: defaultdict(int)),
             "tokens": defaultdict(lambda: defaultdict(int)),
         }
@@ -53,7 +61,7 @@ class Analytics:
 
     async def _initialize(self):
         """
-        Fetches existing data from Redis into the local buffer,
+        Fetches existing data from Redis into the current_totals buffer,
         then starts the periodic synchronization task.
         """
         try:
@@ -68,13 +76,16 @@ class Analytics:
     def _get_period_keys(self) -> tuple:
         """
         Returns day, week, month, and year keys based on the current UTC date.
+        Also includes "total" as a key for all-time tracking.
         """
         now = datetime.utcnow()
         day_key = now.strftime("%Y-%m-%d")
+        # %U is the week number of year, with Sunday as the first day of the week
+        # If you prefer ISO week, consider using %V or something else.
         week_key = f"{now.year}-W{now.strftime('%U')}"
         month_key = now.strftime("%Y-%m")
         year_key = now.strftime("%Y")
-        return day_key, week_key, month_key, year_key
+        return day_key, week_key, month_key, year_key, "total"
 
     async def access(self, model_id: str, tokens: int):
         """
@@ -84,58 +95,56 @@ class Analytics:
         - model_id (str): The ID of the accessed model.
         - tokens (int): Number of tokens used in this access event.
         """
-        day_key, week_key, month_key, year_key = self._get_period_keys()
+        keys = self._get_period_keys()
 
         async with self.lock:
-            # Access counts
-            self.local_buffer["access"][day_key][model_id] += 1
-            self.local_buffer["access"][week_key][model_id] += 1
-            self.local_buffer["access"][month_key][model_id] += 1
-            self.local_buffer["access"][year_key][model_id] += 1
-            self.local_buffer["access"]["total"][model_id] += 1
+            for period_key in keys:
+                # Increase new increments by the usage
+                self.new_increments["access"][period_key][model_id] += 1
+                self.new_increments["tokens"][period_key][model_id] += tokens
 
-            # Token usage
-            self.local_buffer["tokens"][day_key][model_id] += tokens
-            self.local_buffer["tokens"][week_key][model_id] += tokens
-            self.local_buffer["tokens"][month_key][model_id] += tokens
-            self.local_buffer["tokens"][year_key][model_id] += tokens
-            self.local_buffer["tokens"]["total"][model_id] += tokens
+                # Also update current_totals so that stats() are immediately up to date
+                self.current_totals["access"][period_key][model_id] += 1
+                self.current_totals["tokens"][period_key][model_id] += tokens
 
     async def stats(self) -> Dict[str, Dict[str, Dict[str, int]]]:
         """
-        Returns a copy of current statistics from the local buffer.
+        Returns a copy of current statistics from the local buffer (absolute totals).
         """
         async with self.lock:
+            # Return the current_totals, which includes everything loaded from Redis
+            # plus all increments since the last sync.
             return {
                 "access": {
                     period: dict(models)
-                    for period, models in self.local_buffer["access"].items()
+                    for period, models in self.current_totals["access"].items()
                 },
                 "tokens": {
                     period: dict(models)
-                    for period, models in self.local_buffer["tokens"].items()
+                    for period, models in self.current_totals["tokens"].items()
                 },
             }
 
     async def _sync_from_redis(self):
         """
-        Pulls existing analytics data from Upstash Redis into the local buffer.
+        Pulls existing analytics data from Upstash Redis into current_totals.
         Uses run_in_executor to avoid blocking the event loop.
+        Also resets new_increments to avoid double counting after a restart.
         """
         loop = asyncio.get_running_loop()
-
         async with self.lock:
-            # Scan 'access' keys
+            # Reset local structures
+            self.current_totals = {
+                "access": defaultdict(lambda: defaultdict(int)),
+                "tokens": defaultdict(lambda: defaultdict(int)),
+            }
+            self.new_increments = {
+                "access": defaultdict(lambda: defaultdict(int)),
+                "tokens": defaultdict(lambda: defaultdict(int)),
+            }
+
             cursor = 0
             while True:
-                # Upstash doesn't provide a typical 'SCAN' the same way as standard Redis?
-                # We'll mimic it by searching for keys, or we can store a list of known periods if needed.
-                # If you only store certain known patterns, adapt accordingly.
-                # For demonstration, we do a naive approach, or assume we have a method that lists keys.
-                # Upstash doesn't always support the standard SCAN. We might store known keys in a set in Redis.
-
-                # If Upstash doesn't support SCAN at all, you need another approach (like maintaining a separate index).
-                # For now, let's assume it can handle the SCAN command similarly:
                 scan_result = await loop.run_in_executor(
                     None,
                     partial(
@@ -146,6 +155,7 @@ class Analytics:
                     ),
                 )
                 cursor, keys = scan_result[0], scan_result[1]
+
                 for key in keys:
                     # key is "analytics:access:<period>"
                     period = key.replace("analytics:access:", "")
@@ -153,10 +163,11 @@ class Analytics:
                         None, partial(self.redis_client.hgetall, key)
                     )
                     for model_id, count_str in data.items():
-                        self.local_buffer["access"][period][model_id] = int(count_str)
-                break
+                        self.current_totals["access"][period][model_id] = int(count_str)
 
-            # Scan 'tokens' keys
+                if cursor == 0:
+                    break
+
             cursor = 0
             while True:
                 scan_result = await loop.run_in_executor(
@@ -169,6 +180,7 @@ class Analytics:
                     ),
                 )
                 cursor, keys = scan_result[0], scan_result[1]
+
                 for key in keys:
                     # key is "analytics:tokens:<period>"
                     period = key.replace("analytics:tokens:", "")
@@ -176,24 +188,24 @@ class Analytics:
                         None, partial(self.redis_client.hgetall, key)
                     )
                     for model_id, count_str in data.items():
-                        self.local_buffer["tokens"][period][model_id] = int(count_str)
-                break
+                        self.current_totals["tokens"][period][model_id] = int(count_str)
+
+                if cursor == 0:
+                    break
 
     async def _sync_to_redis(self):
         """
-        Pushes the local buffer data to Upstash Redis (local -> Redis).
-        Since Upstash does not support pipelining, we increment each field individually.
+        Pushes only the new_increments to Upstash Redis (local -> Redis).
+        We use HINCRBY to avoid double counting, ensuring we only add the difference.
         """
         loop = asyncio.get_running_loop()
-
         async with self.lock:
             try:
-                # For each (period, model_id, count), call hincrby
-                for period, models in self.local_buffer["access"].items():
+                # For each (period, model_id, count) in new_increments, call HINCRBY
+                for period, models in self.new_increments["access"].items():
                     redis_key = f"analytics:access:{period}"
                     for model_id, count in models.items():
                         if count != 0:
-                            # hincrby(key, field, amount)
                             await loop.run_in_executor(
                                 None,
                                 partial(
@@ -204,7 +216,7 @@ class Analytics:
                                 ),
                             )
 
-                for period, models in self.local_buffer["tokens"].items():
+                for period, models in self.new_increments["tokens"].items():
                     redis_key = f"analytics:tokens:{period}"
                     for model_id, count in models.items():
                         if count != 0:
@@ -218,6 +230,12 @@ class Analytics:
                                 ),
                             )
 
+                # Reset new_increments after successful sync
+                self.new_increments = {
+                    "access": defaultdict(lambda: defaultdict(int)),
+                    "tokens": defaultdict(lambda: defaultdict(int)),
+                }
+
                 logger.info("Analytics data successfully synced to Upstash Redis.")
             except Exception as e:
                 logger.error("Unexpected error during Upstash Redis sync: %s", e)
@@ -226,15 +244,14 @@ class Analytics:
     async def _start_sync_task(self):
         """
         Periodically runs _sync_to_redis at a configurable interval.
-        Also attempts reconnection on any errors (though Upstash typically won't
-        behave exactly like a persistent TCP connection).
+        Also attempts reconnection on any errors (though Upstash is HTTP-based,
+        so it's stateless).
         """
         while True:
             await asyncio.sleep(self.sync_interval)
             try:
                 await self._sync_to_redis()
             except Exception as e:
-                # Upstash might fail differently than standard Redis if there's a network issue
                 logger.error("Error during scheduled sync to Upstash Redis: %s", e)
                 await self._handle_redis_reconnection()
 
@@ -257,8 +274,7 @@ class Analytics:
                 # Recreate the client
                 await loop.run_in_executor(None, self.redis_client.close)
                 self.redis_client = self._create_redis_client()
-                # Upstash doesn't necessarily have a direct 'PING' command, so optional:
-                # If you want to test, you could do e.g. redis_client.get("some_known_key") as a check
+                # Optionally, do a test command if desired (Upstash has limited support).
                 logger.info("Successfully reconnected to Upstash Redis.")
                 return
             except Exception as e:
@@ -270,21 +286,7 @@ class Analytics:
         logger.critical(
             "Max reconnection attempts reached. Unable to reconnect to Upstash Redis."
         )
-
-        # Optionally, keep trying indefinitely
-        # while True:
-        #     try:
-        #         logger.info("Retrying to reconnect to Upstash Redis...")
-        #         await loop.run_in_executor(None, self.redis_client.close)
-        #         self.redis_client = self._create_redis_client()
-        #         logger.info(
-        #             "Successfully reconnected to Upstash Redis after extended retry."
-        #         )
-        #         break
-        #     except Exception as e:
-        #         logger.error("Extended reconnection attempt failed: %s", e)
-        #         await asyncio.sleep(delay)
-        #         delay = min(delay * 2, 60)  # cap at 60s or choose another max
+        # Optionally, you can keep trying indefinitely here.
 
     async def close(self):
         """
