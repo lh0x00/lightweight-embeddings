@@ -183,70 +183,71 @@ def create_main_interface():
 
     with gr.Blocks(title="Lightweight Embeddings", theme="default") as demo:
         gr.Markdown(APP_DESCRIPTION)
-        with gr.Row():
-            with gr.Column():
-                gr.Markdown("### 🔬 Try the Embeddings Playground")
-                input_text = gr.Textbox(
-                    label="Input Text or Image URL",
-                    placeholder="Enter text or an image URL...",
-                    lines=3,
-                )
-                model_dropdown = gr.Dropdown(
-                    choices=model_options,
-                    value=model_options[0],
-                    label="Select Model",
-                )
-                generate_btn = gr.Button("Generate Embeddings")
-                output_json = gr.Textbox(
-                    label="Embeddings API Response",
-                    lines=10,
-                    interactive=False,
-                )
+        with gr.Tab("Embeddings Playground"):
+            with gr.Row():
+                with gr.Column():
+                    gr.Markdown("### 🔬 Try the Embeddings Playground")
+                    input_text = gr.Textbox(
+                        label="Input Text or Image URL",
+                        placeholder="Enter text or an image URL...",
+                        lines=3,
+                    )
+                    model_dropdown = gr.Dropdown(
+                        choices=model_options,
+                        value=model_options[0],
+                        label="Select Model",
+                    )
+                    generate_btn = gr.Button("Generate Embeddings")
+                    output_json = gr.Textbox(
+                        label="Embeddings API Response",
+                        lines=10,
+                        interactive=False,
+                    )
 
-                generate_btn.click(
-                    fn=call_embeddings_api,
-                    inputs=[input_text, model_dropdown],
-                    outputs=output_json,
-                )
+                    generate_btn.click(
+                        fn=call_embeddings_api,
+                        inputs=[input_text, model_dropdown],
+                        outputs=output_json,
+                    )
 
-            with gr.Column():
-                gr.Markdown(
+                with gr.Column():
+                    gr.Markdown(
+                        """
+                    ### 🛠️ cURL Examples
+
+                    **Generate Embeddings (OpenAI compatible)**
+                    ```bash
+                    curl -X 'POST' \\
+                      'https://lamhieu-lightweight-embeddings.hf.space/v1/embeddings' \\
+                      -H 'accept: application/json' \\
+                      -H 'Content-Type: application/json' \\
+                      -d '{
+                      "model": "snowflake-arctic-embed-l-v2.0",
+                      "input": "That is a happy person"
+                    }'
+                    ```
+
+                    **Perform Ranking**
+                    ```bash
+                    curl -X 'POST' \\
+                      'https://lamhieu-lightweight-embeddings.hf.space/v1/rank' \\
+                      -H 'accept: application/json' \\
+                      -H 'Content-Type: application/json' \\
+                      -d '{
+                      "model": "snowflake-arctic-embed-l-v2.0",
+                      "queries": "That is a happy person",
+                      "candidates": [
+                        "That is a happy dog",
+                        "That is a very happy person",
+                        "Today is a sunny day"
+                      ]
+                    }'
+                    ```
                     """
-                  ### 🛠️ cURL Examples
-
-                  **Generate Embeddings (OpenAI compatible)**
-                  ```bash
-                  curl -X 'POST' \\
-                    'https://lamhieu-lightweight-embeddings.hf.space/v1/embeddings' \\
-                    -H 'accept: application/json' \\
-                    -H 'Content-Type: application/json' \\
-                    -d '{
-                    "model": "snowflake-arctic-embed-l-v2.0",
-                    "input": "That is a happy person"
-                  }'
-                  ```
-
-                  **Perform Ranking**
-                  ```bash
-                  curl -X 'POST' \\
-                    'https://lamhieu-lightweight-embeddings.hf.space/v1/rank' \\
-                    -H 'accept: application/json' \\
-                    -H 'Content-Type: application/json' \\
-                    -d '{
-                    "model": "snowflake-arctic-embed-l-v2.0",
-                    "queries": "That is a happy person",
-                    "candidates": [
-                      "That is a happy dog",
-                      "That is a very happy person",
-                      "Today is a sunny day"
-                    ]
-                  }'
-                  ```
-                  """
-                )
+                    )
 
         # STATS SECTION: display stats in tables
-        with gr.Accordion("Analytics Stats"):
+        with gr.Tab("Analytics Stats"):
             stats_btn = gr.Button("Get Stats")
             access_df = gr.DataFrame(
                 label="Access Stats",
