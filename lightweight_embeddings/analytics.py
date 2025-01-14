@@ -146,7 +146,6 @@ class Analytics:
                     ),
                 )
                 cursor, keys = scan_result[0], scan_result[1]
-
                 for key in keys:
                     # key is "analytics:access:<period>"
                     period = key.replace("analytics:access:", "")
@@ -155,9 +154,7 @@ class Analytics:
                     )
                     for model_id, count_str in data.items():
                         self.local_buffer["access"][period][model_id] = int(count_str)
-
-                if cursor == 0:
-                    break
+                break
 
             # Scan 'tokens' keys
             cursor = 0
@@ -172,7 +169,6 @@ class Analytics:
                     ),
                 )
                 cursor, keys = scan_result[0], scan_result[1]
-
                 for key in keys:
                     # key is "analytics:tokens:<period>"
                     period = key.replace("analytics:tokens:", "")
@@ -181,9 +177,7 @@ class Analytics:
                     )
                     for model_id, count_str in data.items():
                         self.local_buffer["tokens"][period][model_id] = int(count_str)
-
-                if cursor == 0:
-                    break
+                break
 
     async def _sync_to_redis(self):
         """
