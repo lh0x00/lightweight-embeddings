@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from enum import Enum
 from typing import List, Union, Dict, Optional, NamedTuple, Any
 from dataclasses import dataclass
@@ -27,7 +28,6 @@ class TextModelType(str, Enum):
     """
     Enumeration of supported text models.
     """
-
     MULTILINGUAL_E5_SMALL = "multilingual-e5-small"
     MULTILINGUAL_E5_BASE = "multilingual-e5-base"
     MULTILINGUAL_E5_LARGE = "multilingual-e5-large"
@@ -42,7 +42,6 @@ class ImageModelType(str, Enum):
     """
     Enumeration of supported image models.
     """
-
     SIGLIP_BASE_PATCH16_256_MULTILINGUAL = "siglip-base-patch16-256-multilingual"
 
 
@@ -50,7 +49,6 @@ class MaxModelLength(str, Enum):
     """
     Enumeration of maximum token lengths for supported text models.
     """
-
     MULTILINGUAL_E5_SMALL = 512
     MULTILINGUAL_E5_BASE = 512
     MULTILINGUAL_E5_LARGE = 512
@@ -65,7 +63,6 @@ class ModelInfo(NamedTuple):
     """
     Container mapping a model type to its model identifier and optional ONNX file.
     """
-
     model_id: str
     onnx_file: Optional[str] = None
 
@@ -75,11 +72,8 @@ class ModelConfig:
     """
     Configuration for text and image models.
     """
-
     text_model_type: TextModelType = TextModelType.MULTILINGUAL_E5_SMALL
-    image_model_type: ImageModelType = (
-        ImageModelType.SIGLIP_BASE_PATCH16_256_MULTILINGUAL
-    )
+    image_model_type: ImageModelType = ImageModelType.SIGLIP_BASE_PATCH16_256_MULTILINGUAL
     logit_scale: float = 4.60517  # Example scale used in cross-modal similarity
 
     @property
@@ -140,7 +134,6 @@ class ModelKind(str, Enum):
     """
     Indicates the type of model: text or image.
     """
-
     TEXT = "text"
     IMAGE = "image"
 
@@ -184,6 +177,11 @@ class EmbeddingsService:
         self.image_models: Dict[ImageModelType, AutoModel] = {}
         self.image_processors: Dict[ImageModelType, AutoProcessor] = {}
 
+        # Create reentrant locks for each text model to ensure thread safety.
+        self.text_model_locks: Dict[TextModelType, threading.RLock] = {
+            t: threading.RLock() for t in TextModelType
+        }
+
         # Create a persistent asynchronous HTTP client.
         self.async_http_client = httpx.AsyncClient(timeout=10)
 
@@ -220,17 +218,11 @@ class EmbeddingsService:
                 # Set maximum sequence length based on configuration.
                 max_length = int(MaxModelLength[t_model_type.name].value)
                 self.text_models[t_model_type].max_seq_length = max_length
-                logger.info(
-                    "Set max_seq_length=%d for text model: %s",
-                    max_length,
-                    info.model_id,
-                )
+                logger.info("Set max_seq_length=%d for text model: %s", max_length, info.model_id)
 
             # Preload image models.
             for i_model_type in ImageModelType:
-                model_id = ModelConfig(
-                    image_model_type=i_model_type
-                ).image_model_info.model_id
+                model_id = ModelConfig(image_model_type=i_model_type).image_model_info.model_id
                 logger.info("Loading image model: %s", model_id)
                 model = AutoModel.from_pretrained(model_id).to(self.device)
                 model.eval()  # Set the model to evaluation mode.
@@ -257,9 +249,7 @@ class EmbeddingsService:
                 raise ValueError("Text input cannot be empty.")
             return [input_text]
 
-        if not isinstance(input_text, list) or not all(
-            isinstance(x, str) for x in input_text
-        ):
+        if not isinstance(input_text, list) or not all(isinstance(x, str) for x in input_text):
             raise ValueError("Text input must be a string or a list of strings.")
 
         if len(input_text) == 0:
@@ -280,9 +270,7 @@ class EmbeddingsService:
                 raise ValueError("Image input cannot be empty.")
             return [input_images]
 
-        if not isinstance(input_images, list) or not all(
-            isinstance(x, str) for x in input_images
-        ):
+        if not isinstance(input_images, list) or not all(isinstance(x, str) for x in input_images):
             raise ValueError("Image input must be a string or a list of strings.")
 
         if len(input_images) == 0:
@@ -305,17 +293,15 @@ class EmbeddingsService:
         try:
             # Attempt to get the tokenizer from the first module of the SentenceTransformer.
             module = model._first_module()
-            if not hasattr(module, "tokenizer"):
+            if not hasattr(module, 'tokenizer'):
                 return text
             tokenizer = module.tokenizer
             # Tokenize without truncation.
             encoded = tokenizer(text, add_special_tokens=True, truncation=False)
             max_length = model.max_seq_length
-            if len(encoded["input_ids"]) > max_length:
-                truncated_ids = encoded["input_ids"][:max_length]
-                truncated_text = tokenizer.decode(
-                    truncated_ids, skip_special_tokens=True
-                )
+            if len(encoded['input_ids']) > max_length:
+                truncated_ids = encoded['input_ids'][:max_length]
+                truncated_text = tokenizer.decode(truncated_ids, skip_special_tokens=True)
                 return truncated_text
         except Exception as e:
             logger.warning("Error during text truncation: %s", str(e))
@@ -367,9 +353,7 @@ class EmbeddingsService:
         processed_data = processor(images=img, return_tensors="pt").to(self.device)
         return processed_data
 
-    def _generate_text_embeddings(
-        self, model_id: TextModelType, texts: List[str]
-    ) -> np.ndarray:
+    def _generate_text_embeddings(self, model_id: TextModelType, texts: List[str]) -> np.ndarray:
         """
         Generate text embeddings using the SentenceTransformer model.
         Single-text requests are cached using an LRU cache.
@@ -385,26 +369,25 @@ class EmbeddingsService:
             RuntimeError: If text embedding generation fails.
         """
         try:
-            if len(texts) == 1:
-                single_text = texts[0]
-                key = md5(f"{model_id}:{single_text}".encode("utf-8")).hexdigest()[:8]
-                if key in self.lru_cache:
-                    return self.lru_cache[key]
-                model = self.text_models[model_id]
-                emb = model.encode([single_text])
-                self.lru_cache[key] = emb
-                return emb
-
             model = self.text_models[model_id]
-            return model.encode(texts)
+            lock = self.text_model_locks[model_id]
+            with lock:
+                if len(texts) == 1:
+                    single_text = texts[0]
+                    key = md5(f"{model_id}:{single_text}".encode("utf-8")).hexdigest()[:8]
+                    if key in self.lru_cache:
+                        return self.lru_cache[key]
+                    emb = model.encode([single_text])
+                    self.lru_cache[key] = emb
+                    return emb
+
+                return model.encode(texts)
         except Exception as e:
             raise RuntimeError(
                 f"Error generating text embeddings with model '{model_id}': {e}"
             ) from e
 
-    async def _async_generate_image_embeddings(
-        self, model_id: ImageModelType, images: List[str]
-    ) -> np.ndarray:
+    async def _async_generate_image_embeddings(self, model_id: ImageModelType, images: List[str]) -> np.ndarray:
         """
         Asynchronously generate image embeddings.
 
@@ -428,15 +411,11 @@ class EmbeddingsService:
             )
             # Assume all processed outputs have the same keys.
             keys = processed_tensors[0].keys()
-            combined = {
-                k: torch.cat([pt[k] for pt in processed_tensors], dim=0) for k in keys
-            }
+            combined = {k: torch.cat([pt[k] for pt in processed_tensors], dim=0) for k in keys}
 
             def infer():
                 with torch.no_grad():
-                    embeddings = self.image_models[model_id].get_image_features(
-                        **combined
-                    )
+                    embeddings = self.image_models[model_id].get_image_features(**combined)
                 return embeddings.cpu().numpy()
 
             return await asyncio.to_thread(infer)
@@ -445,9 +424,7 @@ class EmbeddingsService:
                 f"Error generating image embeddings with model '{model_id}': {e}"
             ) from e
 
-    async def generate_embeddings(
-        self, model: str, inputs: Union[str, List[str]]
-    ) -> np.ndarray:
+    async def generate_embeddings(self, model: str, inputs: Union[str, List[str]]) -> np.ndarray:
         """
         Asynchronously generate embeddings for text or image inputs based on model type.
 
@@ -463,26 +440,19 @@ class EmbeddingsService:
             text_model_enum = TextModelType(model)
             text_list = self._validate_text_list(inputs)
             model_instance = self.text_models[text_model_enum]
-            # Truncate each text if it exceeds the maximum allowed token length.
-            truncated_texts = [
-                self._truncate_text(text, model_instance) for text in text_list
-            ]
+            lock = self.text_model_locks[text_model_enum]
+            with lock:
+                # Truncate each text if it exceeds the maximum allowed token length.
+                truncated_texts = [self._truncate_text(text, model_instance) for text in text_list]
             return await asyncio.to_thread(
                 self._generate_text_embeddings, text_model_enum, truncated_texts
             )
         elif modality == ModelKind.IMAGE:
             image_model_enum = ImageModelType(model)
             image_list = self._validate_image_list(inputs)
-            return await self._async_generate_image_embeddings(
-                image_model_enum, image_list
-            )
+            return await self._async_generate_image_embeddings(image_model_enum, image_list)
 
-    async def rank(
-        self,
-        model: str,
-        queries: Union[str, List[str]],
-        candidates: Union[str, List[str]],
-    ) -> Dict[str, Any]:
+    async def rank(self, model: str, queries: Union[str, List[str]], candidates: Union[str, List[str]]) -> Dict[str, Any]:
         """
         Asynchronously rank candidate texts/images against the provided queries.
         Embeddings for queries and candidates are generated concurrently.
@@ -503,12 +473,8 @@ class EmbeddingsService:
 
         # Concurrently generate embeddings.
         query_task = asyncio.create_task(self.generate_embeddings(model, queries))
-        candidate_task = asyncio.create_task(
-            self.generate_embeddings(model, candidates)
-        )
-        query_embeds, candidate_embeds = await asyncio.gather(
-            query_task, candidate_task
-        )
+        candidate_task = asyncio.create_task(self.generate_embeddings(model, candidates))
+        query_embeds, candidate_embeds = await asyncio.gather(query_task, candidate_task)
 
         # Compute cosine similarity.
         sim_matrix = self.cosine_similarity(query_embeds, candidate_embeds)
