@@ -1,3 +1,5 @@
+# filename: service.py
+
 from __future__ import annotations
 
 import asyncio
@@ -42,6 +44,21 @@ class ImageModelType(str, Enum):
     """
 
     SIGLIP_BASE_PATCH16_256_MULTILINGUAL = "siglip-base-patch16-256-multilingual"
+
+
+class MaxModelLength(str, Enum):
+    """
+    Enumeration of maximum token lengths for supported text models.
+    """
+
+    MULTILINGUAL_E5_SMALL = 512
+    MULTILINGUAL_E5_BASE = 512
+    MULTILINGUAL_E5_LARGE = 512
+    SNOWFLAKE_ARCTIC_EMBED_L_V2 = 8192
+    PARAPHRASE_MULTILINGUAL_MINILM_L12_V2 = 128
+    PARAPHRASE_MULTILINGUAL_MPNET_BASE_V2 = 128
+    BGE_M3 = 8192
+    GTE_MULTILINGUAL_BASE = 8192
 
 
 class ModelInfo(NamedTuple):
@@ -200,6 +217,14 @@ class EmbeddingsService:
                         device=self.device,
                         trust_remote_code=True,
                     )
+                # Set maximum sequence length based on configuration.
+                max_length = int(MaxModelLength[t_model_type.name].value)
+                self.text_models[t_model_type].max_seq_length = max_length
+                logger.info(
+                    "Set max_seq_length=%d for text model: %s",
+                    max_length,
+                    info.model_id,
+                )
 
             # Preload image models.
             for i_model_type in ImageModelType:
@@ -265,6 +290,37 @@ class EmbeddingsService:
 
         return input_images
 
+    def _truncate_text(self, text: str, model: SentenceTransformer) -> str:
+        """
+        Truncate the input text to the maximum allowed tokens for the given model.
+
+        Args:
+            text: The input text.
+            model: The SentenceTransformer model used for tokenization.
+
+        Returns:
+            The truncated text if token length exceeds the maximum allowed length,
+            otherwise the original text.
+        """
+        try:
+            # Attempt to get the tokenizer from the first module of the SentenceTransformer.
+            module = model._first_module()
+            if not hasattr(module, "tokenizer"):
+                return text
+            tokenizer = module.tokenizer
+            # Tokenize without truncation.
+            encoded = tokenizer(text, add_special_tokens=True, truncation=False)
+            max_length = model.max_seq_length
+            if len(encoded["input_ids"]) > max_length:
+                truncated_ids = encoded["input_ids"][:max_length]
+                truncated_text = tokenizer.decode(
+                    truncated_ids, skip_special_tokens=True
+                )
+                return truncated_text
+        except Exception as e:
+            logger.warning("Error during text truncation: %s", str(e))
+        return text
+
     async def _fetch_image(self, path_or_url: str) -> Image.Image:
         """
         Asynchronously fetch an image from a URL or load from a local path.
@@ -312,13 +368,15 @@ class EmbeddingsService:
         return processed_data
 
     def _generate_text_embeddings(
-        self,
-        model_id: TextModelType,
-        texts: List[str],
+        self, model_id: TextModelType, texts: List[str]
     ) -> np.ndarray:
         """
         Generate text embeddings using the SentenceTransformer model.
         Single-text requests are cached using an LRU cache.
+
+        Args:
+            model_id: The text model type.
+            texts: A list of input texts.
 
         Returns:
             A NumPy array of text embeddings.
@@ -345,15 +403,17 @@ class EmbeddingsService:
             ) from e
 
     async def _async_generate_image_embeddings(
-        self,
-        model_id: ImageModelType,
-        images: List[str],
+        self, model_id: ImageModelType, images: List[str]
     ) -> np.ndarray:
         """
         Asynchronously generate image embeddings.
 
         This method concurrently processes multiple images and offloads
         the blocking model inference to a separate thread.
+
+        Args:
+            model_id: The image model type.
+            images: A list of image URLs or file paths.
 
         Returns:
             A NumPy array of image embeddings.
@@ -386,9 +446,7 @@ class EmbeddingsService:
             ) from e
 
     async def generate_embeddings(
-        self,
-        model: str,
-        inputs: Union[str, List[str]],
+        self, model: str, inputs: Union[str, List[str]]
     ) -> np.ndarray:
         """
         Asynchronously generate embeddings for text or image inputs based on model type.
@@ -402,16 +460,21 @@ class EmbeddingsService:
         """
         modality = detect_model_kind(model)
         if modality == ModelKind.TEXT:
-            text_model_id = TextModelType(model)
+            text_model_enum = TextModelType(model)
             text_list = self._validate_text_list(inputs)
+            model_instance = self.text_models[text_model_enum]
+            # Truncate each text if it exceeds the maximum allowed token length.
+            truncated_texts = [
+                self._truncate_text(text, model_instance) for text in text_list
+            ]
             return await asyncio.to_thread(
-                self._generate_text_embeddings, text_model_id, text_list
+                self._generate_text_embeddings, text_model_enum, truncated_texts
             )
         elif modality == ModelKind.IMAGE:
-            image_model_id = ImageModelType(model)
+            image_model_enum = ImageModelType(model)
             image_list = self._validate_image_list(inputs)
             return await self._async_generate_image_embeddings(
-                image_model_id, image_list
+                image_model_enum, image_list
             )
 
     async def rank(
@@ -423,6 +486,11 @@ class EmbeddingsService:
         """
         Asynchronously rank candidate texts/images against the provided queries.
         Embeddings for queries and candidates are generated concurrently.
+
+        Args:
+            model: The model identifier.
+            queries: The query input(s).
+            candidates: The candidate input(s).
 
         Returns:
             A dictionary containing probabilities, cosine similarities, and usage statistics.
@@ -469,6 +537,9 @@ class EmbeddingsService:
         """
         Estimate the token count for the given text input using the SentenceTransformer tokenizer.
 
+        Args:
+            input_data: The text input(s).
+
         Returns:
             The total number of tokens.
         """
@@ -482,8 +553,11 @@ class EmbeddingsService:
         """
         Compute the softmax over the last dimension of the input array.
 
+        Args:
+            scores: A NumPy array of scores.
+
         Returns:
-            The softmax probabilities.
+            A NumPy array of softmax probabilities.
         """
         exps = np.exp(scores - np.max(scores, axis=-1, keepdims=True))
         return exps / np.sum(exps, axis=-1, keepdims=True)
@@ -492,6 +566,10 @@ class EmbeddingsService:
     def cosine_similarity(a: np.ndarray, b: np.ndarray) -> np.ndarray:
         """
         Compute the pairwise cosine similarity between all rows of arrays a and b.
+
+        Args:
+            a: A NumPy array.
+            b: A NumPy array.
 
         Returns:
             A (N x M) matrix of cosine similarities.
