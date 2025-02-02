@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from enum import Enum
 from typing import List, Union, Dict, Optional, NamedTuple, Any
@@ -9,7 +10,7 @@ from io import BytesIO
 from hashlib import md5
 from cachetools import LRUCache
 
-import requests
+import httpx
 import numpy as np
 import torch
 from PIL import Image
@@ -45,9 +46,7 @@ class ImageModelType(str, Enum):
 
 class ModelInfo(NamedTuple):
     """
-    This container maps an enum to:
-      - model_id: Hugging Face model ID (or local path)
-      - onnx_file: Path to ONNX file (if available)
+    Container mapping a model type to its model identifier and optional ONNX file.
     """
 
     model_id: str
@@ -69,7 +68,7 @@ class ModelConfig:
     @property
     def text_model_info(self) -> ModelInfo:
         """
-        Returns ModelInfo for the configured text_model_type.
+        Return model information for the configured text model.
         """
         text_configs = {
             TextModelType.MULTILINGUAL_E5_SMALL: ModelInfo(
@@ -110,7 +109,7 @@ class ModelConfig:
     @property
     def image_model_info(self) -> ModelInfo:
         """
-        Returns ModelInfo for the configured image_model_type.
+        Return model information for the configured image model.
         """
         image_configs = {
             ImageModelType.SIGLIP_BASE_PATCH16_256_MULTILINGUAL: ModelInfo(
@@ -121,14 +120,20 @@ class ModelConfig:
 
 
 class ModelKind(str, Enum):
+    """
+    Indicates the type of model: text or image.
+    """
+
     TEXT = "text"
     IMAGE = "image"
 
 
 def detect_model_kind(model_id: str) -> ModelKind:
     """
-    Detect whether model_id belongs to a text or an image model.
-    Raises ValueError if the model is not recognized.
+    Detect whether the model identifier corresponds to a text or image model.
+
+    Raises:
+        ValueError: If the model identifier is unrecognized.
     """
     if model_id in [m.value for m in TextModelType]:
         return ModelKind.TEXT
@@ -145,32 +150,38 @@ def detect_model_kind(model_id: str) -> ModelKind:
 class EmbeddingsService:
     """
     Service for generating text/image embeddings and performing similarity ranking.
-    Batch size has been removed. Single or multiple inputs are handled uniformly.
+    Asynchronous methods are used to maximize throughput and avoid blocking the event loop.
     """
 
     def __init__(self, config: Optional[ModelConfig] = None):
+        """
+        Initialize the service by setting up model caches, device configuration,
+        and asynchronous HTTP client.
+        """
         self.lru_cache = LRUCache(maxsize=10_000)
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.config = config or ModelConfig()
 
-        # Dictionaries to hold preloaded models
+        # Dictionaries to hold preloaded models.
         self.text_models: Dict[TextModelType, SentenceTransformer] = {}
         self.image_models: Dict[ImageModelType, AutoModel] = {}
         self.image_processors: Dict[ImageModelType, AutoProcessor] = {}
 
-        # Load all relevant models on init
+        # Create a persistent asynchronous HTTP client.
+        self.async_http_client = httpx.AsyncClient(timeout=10)
+
+        # Preload all models.
         self._load_all_models()
 
     def _load_all_models(self) -> None:
         """
-        Pre-load all known text and image models for quick switching.
+        Pre-load all text and image models to minimize latency at request time.
         """
         try:
-            # Preload text models
+            # Preload text models.
             for t_model_type in TextModelType:
                 info = ModelConfig(text_model_type=t_model_type).text_model_info
                 logger.info("Loading text model: %s", info.model_id)
-
                 if info.onnx_file:
                     logger.info("Using ONNX file: %s", info.onnx_file)
                     self.text_models[t_model_type] = SentenceTransformer(
@@ -190,16 +201,15 @@ class EmbeddingsService:
                         trust_remote_code=True,
                     )
 
-            # Preload image models
+            # Preload image models.
             for i_model_type in ImageModelType:
                 model_id = ModelConfig(
                     image_model_type=i_model_type
                 ).image_model_info.model_id
                 logger.info("Loading image model: %s", model_id)
-
                 model = AutoModel.from_pretrained(model_id).to(self.device)
+                model.eval()  # Set the model to evaluation mode.
                 processor = AutoProcessor.from_pretrained(model_id)
-
                 self.image_models[i_model_type] = model
                 self.image_processors[i_model_type] = processor
 
@@ -212,8 +222,10 @@ class EmbeddingsService:
     @staticmethod
     def _validate_text_list(input_text: Union[str, List[str]]) -> List[str]:
         """
-        Convert text input into a non-empty list of strings.
-        Raises ValueError if the input is invalid.
+        Validate and convert text input into a non-empty list of strings.
+
+        Raises:
+            ValueError: If the input is invalid.
         """
         if isinstance(input_text, str):
             if not input_text.strip():
@@ -233,8 +245,10 @@ class EmbeddingsService:
     @staticmethod
     def _validate_image_list(input_images: Union[str, List[str]]) -> List[str]:
         """
-        Convert image input into a non-empty list of image paths/URLs.
-        Raises ValueError if the input is invalid.
+        Validate and convert image input into a non-empty list of image paths/URLs.
+
+        Raises:
+            ValueError: If the input is invalid.
         """
         if isinstance(input_images, str):
             if not input_images.strip():
@@ -251,24 +265,51 @@ class EmbeddingsService:
 
         return input_images
 
-    def _process_image(self, path_or_url: str) -> Dict[str, torch.Tensor]:
+    async def _fetch_image(self, path_or_url: str) -> Image.Image:
         """
-        Loads and processes a single image from local path or URL.
-        Returns a dictionary of tensors ready for the model.
+        Asynchronously fetch an image from a URL or load from a local path.
+
+        Args:
+            path_or_url: The URL or file path of the image.
+
+        Returns:
+            A PIL Image in RGB mode.
+
+        Raises:
+            ValueError: If image fetching or processing fails.
         """
         try:
             if path_or_url.startswith("http"):
-                resp = requests.get(path_or_url, timeout=10)
-                resp.raise_for_status()
-                img = Image.open(BytesIO(resp.content)).convert("RGB")
+                # Asynchronously fetch the image bytes.
+                response = await self.async_http_client.get(path_or_url)
+                response.raise_for_status()
+                # Offload the blocking I/O (PIL image opening) to a thread.
+                img = await asyncio.to_thread(Image.open, BytesIO(response.content))
             else:
-                img = Image.open(Path(path_or_url)).convert("RGB")
-
-            processor = self.image_processors[self.config.image_model_type]
-            processed_data = processor(images=img, return_tensors="pt").to(self.device)
-            return processed_data
+                # Offload file I/O to a thread.
+                img = await asyncio.to_thread(Image.open, Path(path_or_url))
+            return img.convert("RGB")
         except Exception as e:
-            raise ValueError(f"Error processing image '{path_or_url}': {str(e)}") from e
+            raise ValueError(f"Error fetching image '{path_or_url}': {str(e)}") from e
+
+    async def _process_image(self, path_or_url: str) -> Dict[str, torch.Tensor]:
+        """
+        Asynchronously load and process a single image.
+
+        Args:
+            path_or_url: The image URL or local path.
+
+        Returns:
+            A dictionary of processed tensors ready for model input.
+
+        Raises:
+            ValueError: If image processing fails.
+        """
+        img = await self._fetch_image(path_or_url)
+        processor = self.image_processors[self.config.image_model_type]
+        # Note: Processor may perform CPU-intensive work; if needed, offload to thread.
+        processed_data = processor(images=img, return_tensors="pt").to(self.device)
+        return processed_data
 
     def _generate_text_embeddings(
         self,
@@ -276,8 +317,14 @@ class EmbeddingsService:
         texts: List[str],
     ) -> np.ndarray:
         """
-        Generates text embeddings using the SentenceTransformer-based model.
-        Utilizes an LRU cache for single-input scenarios.
+        Generate text embeddings using the SentenceTransformer model.
+        Single-text requests are cached using an LRU cache.
+
+        Returns:
+            A NumPy array of text embeddings.
+
+        Raises:
+            RuntimeError: If text embedding generation fails.
         """
         try:
             if len(texts) == 1:
@@ -285,48 +332,54 @@ class EmbeddingsService:
                 key = md5(f"{model_id}:{single_text}".encode("utf-8")).hexdigest()[:8]
                 if key in self.lru_cache:
                     return self.lru_cache[key]
-
                 model = self.text_models[model_id]
                 emb = model.encode([single_text])
                 self.lru_cache[key] = emb
                 return emb
 
-            # For multiple texts, no LRU cache is used
             model = self.text_models[model_id]
             return model.encode(texts)
-
         except Exception as e:
             raise RuntimeError(
                 f"Error generating text embeddings with model '{model_id}': {e}"
             ) from e
 
-    def _generate_image_embeddings(
+    async def _async_generate_image_embeddings(
         self,
         model_id: ImageModelType,
         images: List[str],
     ) -> np.ndarray:
         """
-        Generates image embeddings using the CLIP-like transformer model.
-        Handles single or multiple images uniformly (no batch size parameter).
+        Asynchronously generate image embeddings.
+
+        This method concurrently processes multiple images and offloads
+        the blocking model inference to a separate thread.
+
+        Returns:
+            A NumPy array of image embeddings.
+
+        Raises:
+            RuntimeError: If image embedding generation fails.
         """
         try:
-            model = self.image_models[model_id]
-            # Collect processed inputs in a single batch
-            processed_tensors = []
-            for img_path in images:
-                processed_tensors.append(self._process_image(img_path))
-
-            # Keys should be the same for all processed outputs
+            # Concurrently process all images.
+            processed_tensors = await asyncio.gather(
+                *[self._process_image(img_path) for img_path in images]
+            )
+            # Assume all processed outputs have the same keys.
             keys = processed_tensors[0].keys()
-            # Concatenate along the batch dimension
             combined = {
                 k: torch.cat([pt[k] for pt in processed_tensors], dim=0) for k in keys
             }
 
-            with torch.no_grad():
-                embeddings = model.get_image_features(**combined)
-            return embeddings.cpu().numpy()
+            def infer():
+                with torch.no_grad():
+                    embeddings = self.image_models[model_id].get_image_features(
+                        **combined
+                    )
+                return embeddings.cpu().numpy()
 
+            return await asyncio.to_thread(infer)
         except Exception as e:
             raise RuntimeError(
                 f"Error generating image embeddings with model '{model_id}': {e}"
@@ -338,19 +391,28 @@ class EmbeddingsService:
         inputs: Union[str, List[str]],
     ) -> np.ndarray:
         """
-        Asynchronously generates embeddings for either text or image based on the model type.
+        Asynchronously generate embeddings for text or image inputs based on model type.
+
+        Args:
+            model: The model identifier.
+            inputs: The text or image input(s).
+
+        Returns:
+            A NumPy array of embeddings.
         """
         modality = detect_model_kind(model)
-
         if modality == ModelKind.TEXT:
             text_model_id = TextModelType(model)
             text_list = self._validate_text_list(inputs)
-            return self._generate_text_embeddings(text_model_id, text_list)
-
+            return await asyncio.to_thread(
+                self._generate_text_embeddings, text_model_id, text_list
+            )
         elif modality == ModelKind.IMAGE:
             image_model_id = ImageModelType(model)
             image_list = self._validate_image_list(inputs)
-            return self._generate_image_embeddings(image_model_id, image_list)
+            return await self._async_generate_image_embeddings(
+                image_model_id, image_list
+            )
 
     async def rank(
         self,
@@ -359,35 +421,32 @@ class EmbeddingsService:
         candidates: Union[str, List[str]],
     ) -> Dict[str, Any]:
         """
-        Ranks text `candidates` given `queries`, which can be text or images.
-        Always returns a dictionary of { probabilities, cosine_similarities, usage }.
+        Asynchronously rank candidate texts/images against the provided queries.
+        Embeddings for queries and candidates are generated concurrently.
 
-        Note: This implementation uses the same model for both queries and candidates.
-              For true cross-modal ranking, you might need separate models or a shared model.
+        Returns:
+            A dictionary containing probabilities, cosine similarities, and usage statistics.
         """
         modality = detect_model_kind(model)
-
-        # Convert the string model to the appropriate enum
         if modality == ModelKind.TEXT:
             model_enum = TextModelType(model)
         else:
             model_enum = ImageModelType(model)
 
-        # 1) Generate embeddings for queries
-        query_embeds = await self.generate_embeddings(model_enum.value, queries)
+        # Concurrently generate embeddings.
+        query_task = asyncio.create_task(self.generate_embeddings(model, queries))
+        candidate_task = asyncio.create_task(
+            self.generate_embeddings(model, candidates)
+        )
+        query_embeds, candidate_embeds = await asyncio.gather(
+            query_task, candidate_task
+        )
 
-        # 2) Generate embeddings for candidates (assumed text if queries are text;
-        #    or if queries are images, also use the image model for candidates).
-        candidate_embeds = await self.generate_embeddings(model_enum.value, candidates)
-
-        # 3) Compute cosine similarity
+        # Compute cosine similarity.
         sim_matrix = self.cosine_similarity(query_embeds, candidate_embeds)
-
-        # 4) Apply logit scale + softmax to obtain probabilities
         scaled = np.exp(self.config.logit_scale) * sim_matrix
         probs = self.softmax(scaled)
 
-        # 5) Estimate token usage if we're dealing with text
         if modality == ModelKind.TEXT:
             query_tokens = self.estimate_tokens(queries)
             candidate_tokens = self.estimate_tokens(candidates)
@@ -408,32 +467,41 @@ class EmbeddingsService:
 
     def estimate_tokens(self, input_data: Union[str, List[str]]) -> int:
         """
-        Estimates token count using the SentenceTransformer tokenizer.
-        Only applicable if the current configured model is a text model.
+        Estimate the token count for the given text input using the SentenceTransformer tokenizer.
+
+        Returns:
+            The total number of tokens.
         """
         texts = self._validate_text_list(input_data)
         model = self.text_models[self.config.text_model_type]
         tokenized = model.tokenize(texts)
-        # Summing over the lengths of input_ids for each example
         return sum(len(ids) for ids in tokenized["input_ids"])
 
     @staticmethod
     def softmax(scores: np.ndarray) -> np.ndarray:
         """
-        Applies the standard softmax function along the last dimension.
+        Compute the softmax over the last dimension of the input array.
+
+        Returns:
+            The softmax probabilities.
         """
-        # Stabilize scores by subtracting max
         exps = np.exp(scores - np.max(scores, axis=-1, keepdims=True))
         return exps / np.sum(exps, axis=-1, keepdims=True)
 
     @staticmethod
     def cosine_similarity(a: np.ndarray, b: np.ndarray) -> np.ndarray:
         """
-        Computes the pairwise cosine similarity between all rows of a and b.
-        a: (N, D)
-        b: (M, D)
-        Return: (N, M) matrix of cosine similarities
+        Compute the pairwise cosine similarity between all rows of arrays a and b.
+
+        Returns:
+            A (N x M) matrix of cosine similarities.
         """
         a_norm = a / (np.linalg.norm(a, axis=1, keepdims=True) + 1e-9)
         b_norm = b / (np.linalg.norm(b, axis=1, keepdims=True) + 1e-9)
         return np.dot(a_norm, b_norm.T)
+
+    async def close(self) -> None:
+        """
+        Close the asynchronous HTTP client.
+        """
+        await self.async_http_client.aclose()
