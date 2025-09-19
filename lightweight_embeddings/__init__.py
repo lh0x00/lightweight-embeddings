@@ -84,7 +84,7 @@ from .router import router
 app.include_router(router, prefix="/v1")
 
 
-def call_embeddings_api(user_input: str, selected_model: str) -> str:
+def call_embeddings_api(user_input: str, selected_model: str, auth_key: str = "") -> str:
     """
     Send a request to the /v1/embeddings endpoint with the given model and input.
     Return a pretty-printed JSON response or an error message.
@@ -94,6 +94,10 @@ def call_embeddings_api(user_input: str, selected_model: str) -> str:
         "input": user_input,
     }
     headers = {"Content-Type": "application/json"}
+    
+    # Add authorization header if auth_key is provided
+    if auth_key.strip():
+        headers["Authorization"] = f"Bearer {auth_key.strip()}"
 
     try:
         response = requests.post(
@@ -197,6 +201,12 @@ def create_main_interface():
                         value=model_options[0],
                         label="Select Model",
                     )
+                    auth_key = gr.Textbox(
+                        label="Authorization Key (Optional)",
+                        placeholder="Enter your auth key if required...",
+                        type="password",
+                        lines=1,
+                    )
                     generate_btn = gr.Button("Generate Embeddings")
                     output_json = gr.Textbox(
                         label="Embeddings API Response",
@@ -206,7 +216,7 @@ def create_main_interface():
 
                     generate_btn.click(
                         fn=call_embeddings_api,
-                        inputs=[input_text, model_dropdown],
+                        inputs=[input_text, model_dropdown, auth_key],
                         outputs=output_json,
                     )
 
@@ -216,6 +226,19 @@ def create_main_interface():
                     ### 🛠️ cURL Examples
 
                     **Generate Embeddings (OpenAI compatible)**
+                    ```bash
+                    curl -X 'POST' \\
+                      'https://lamhieu-lightweight-embeddings.hf.space/v1/embeddings' \\
+                      -H 'accept: application/json' \\
+                      -H 'Content-Type: application/json' \\
+                      -H 'Authorization: Bearer YOUR_AUTH_KEY' \\
+                      -d '{
+                      "model": "snowflake-arctic-embed-l-v2.0",
+                      "input": "That is a happy person"
+                    }'
+                    ```
+
+                    **Generate Embeddings (without auth)**
                     ```bash
                     curl -X 'POST' \\
                       'https://lamhieu-lightweight-embeddings.hf.space/v1/embeddings' \\
@@ -233,6 +256,7 @@ def create_main_interface():
                       'https://lamhieu-lightweight-embeddings.hf.space/v1/rank' \\
                       -H 'accept: application/json' \\
                       -H 'Content-Type: application/json' \\
+                      -H 'Authorization: Bearer YOUR_AUTH_KEY' \\
                       -d '{
                       "model": "snowflake-arctic-embed-l-v2.0",
                       "queries": "That is a happy person",
@@ -243,6 +267,8 @@ def create_main_interface():
                       ]
                     }'
                     ```
+                    
+                    💡 **Note**: Add Authorization header only if ACCESS_TOKEN environment variable is set on the server.
                     """
                     )
 
