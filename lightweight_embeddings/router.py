@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import datetime
 from typing import Dict, List, Union
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Header
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, Request
 from pydantic import BaseModel, Field
 
 from .analytics import Analytics
@@ -114,30 +115,94 @@ analytics = Analytics(
     sync_interval=30 * 60,  # 30 minutes
 )
 
+# Rate limiting cache: {ip: [timestamp1, timestamp2, ...]}
+rate_limit_cache: Dict[str, List[float]] = {}
+
+
+def check_rate_limit(
+    client_ip: str, max_requests: int = 4, window_seconds: int = 60
+) -> bool:
+    """
+    Check if the client IP has exceeded the rate limit.
+    Returns True if request is allowed, False if rate limited.
+    """
+    current_time = time.time()
+
+    # Clean up old entries and get current requests
+    if client_ip in rate_limit_cache:
+        # Remove requests older than the window
+        rate_limit_cache[client_ip] = [
+            timestamp
+            for timestamp in rate_limit_cache[client_ip]
+            if current_time - timestamp < window_seconds
+        ]
+    else:
+        rate_limit_cache[client_ip] = []
+
+    # Check if under limit
+    if len(rate_limit_cache[client_ip]) < max_requests:
+        # Add current request timestamp
+        rate_limit_cache[client_ip].append(current_time)
+        return True
+
+    return False
+
 
 @router.post("/embeddings", response_model=EmbeddingResponse, tags=["embeddings"])
 async def create_embeddings(
-    request: EmbeddingRequest, 
+    request: EmbeddingRequest,
     background_tasks: BackgroundTasks,
-    authorization: str = Header(None)
+    fastapi_request: Request,
+    authorization: str = Header(None),
 ):
     """
     Generate embeddings for the given text or image inputs.
     """
     # Check authorization
     expected_token = os.environ.get("ACCESS_TOKEN")
+    is_authenticated = False
+
     if expected_token:
-        if not authorization:
-            raise HTTPException(status_code=401, detail="Authorization header required")
-        
-        # Support both "Bearer <token>" and plain token formats
-        token = authorization
-        if authorization.startswith("Bearer "):
-            token = authorization[7:]  # Remove "Bearer " prefix
-            
-        if token != expected_token:
-            raise HTTPException(status_code=401, detail="Invalid authorization token")
-    
+        if authorization:
+            # Support both "Bearer <token>" and plain token formats
+            token = authorization
+            if authorization.startswith("Bearer "):
+                token = authorization[7:]  # Remove "Bearer " prefix
+
+            if token == expected_token:
+                is_authenticated = True
+
+        # If not authenticated, check rate limit
+        if not is_authenticated:
+            # Get client IP
+            client_ip = fastapi_request.client.host
+            if hasattr(fastapi_request.headers, "get"):
+                # Check for forwarded IP (in case of proxy)
+                forwarded_for = fastapi_request.headers.get("X-Forwarded-For")
+                if forwarded_for:
+                    client_ip = forwarded_for.split(",")[0].strip()
+
+                real_ip = fastapi_request.headers.get("X-Real-IP")
+                if real_ip:
+                    client_ip = real_ip.strip()
+
+            # Check rate limit (4 requests per minute)
+            if not check_rate_limit(client_ip):
+                raise HTTPException(
+                    status_code=429,
+                    detail="Rate limit exceeded. Maximum 4 requests per minute for unauthenticated users.",
+                )
+
+            # If no authorization header was provided when ACCESS_TOKEN is set
+            if not authorization:
+                raise HTTPException(
+                    status_code=401, detail="Authorization header required"
+                )
+            else:
+                raise HTTPException(
+                    status_code=401, detail="Invalid authorization token"
+                )
+
     try:
         modality = detect_model_kind(request.model)
         embeddings = await embeddings_service.generate_embeddings(
