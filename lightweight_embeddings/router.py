@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 from typing import Dict, List, Union
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Header
 from pydantic import BaseModel, Field
 
 from .analytics import Analytics
@@ -117,11 +117,27 @@ analytics = Analytics(
 
 @router.post("/embeddings", response_model=EmbeddingResponse, tags=["embeddings"])
 async def create_embeddings(
-    request: EmbeddingRequest, background_tasks: BackgroundTasks
+    request: EmbeddingRequest, 
+    background_tasks: BackgroundTasks,
+    authorization: str = Header(None)
 ):
     """
     Generate embeddings for the given text or image inputs.
     """
+    # Check authorization
+    expected_token = os.environ.get("ACCESS_TOKEN")
+    if expected_token:
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authorization header required")
+        
+        # Support both "Bearer <token>" and plain token formats
+        token = authorization
+        if authorization.startswith("Bearer "):
+            token = authorization[7:]  # Remove "Bearer " prefix
+            
+        if token != expected_token:
+            raise HTTPException(status_code=401, detail="Invalid authorization token")
+    
     try:
         modality = detect_model_kind(request.model)
         embeddings = await embeddings_service.generate_embeddings(
