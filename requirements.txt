@@ -9,5 +9,5 @@ httpx
 sentence-transformers[onnx]==4.1.0
 sentencepiece==0.2.1
 torch==2.9.0
-transformers==4.57.1
+transformers==4.45.2
 upstash_redis==1.4.0
