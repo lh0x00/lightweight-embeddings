@@ -37,7 +37,7 @@ class EmbeddingRequest(BaseModel):
             "Which model ID to use? "
             "Text options: ['multilingual-e5-small', 'multilingual-e5-base', 'multilingual-e5-large', "
             "'snowflake-arctic-embed-l-v2.0', 'paraphrase-multilingual-MiniLM-L12-v2', "
-            "'paraphrase-multilingual-mpnet-base-v2', 'bge-m3', 'gte-multilingual-base', 'embeddinggemma']. "
+            "'paraphrase-multilingual-mpnet-base-v2', 'bge-m3', 'gte-multilingual-base', 'embeddinggemma-300m']. "
             "Image option: ['siglip-base-patch16-256-multilingual']."
         ),
     )
@@ -120,7 +120,7 @@ rate_limit_cache: Dict[str, List[float]] = {}
 
 
 def check_rate_limit(
-    client_ip: str, max_requests: int = 4, window_seconds: int = 60
+    client_ip: str, max_requests: int = 10, window_seconds: int = 60
 ) -> bool:
     """
     Check if the client IP has exceeded the rate limit.
@@ -162,46 +162,35 @@ async def create_embeddings(
     expected_token = os.environ.get("ACCESS_TOKEN")
     is_authenticated = False
 
-    if expected_token:
-        if authorization:
-            # Support both "Bearer <token>" and plain token formats
-            token = authorization
-            if authorization.startswith("Bearer "):
-                token = authorization[7:]  # Remove "Bearer " prefix
+    if expected_token and authorization:
+        # Support both "Bearer <token>" and plain token formats
+        token = authorization
+        if authorization.startswith("Bearer "):
+            token = authorization[7:]  # Remove "Bearer " prefix
 
-            if token == expected_token:
-                is_authenticated = True
+        if token == expected_token:
+            is_authenticated = True
 
-        # If not authenticated, check rate limit
-        if not is_authenticated:
-            # Get client IP
-            client_ip = fastapi_request.client.host
-            if hasattr(fastapi_request.headers, "get"):
-                # Check for forwarded IP (in case of proxy)
-                forwarded_for = fastapi_request.headers.get("X-Forwarded-For")
-                if forwarded_for:
-                    client_ip = forwarded_for.split(",")[0].strip()
+    # If not authenticated (no token, empty token, or wrong token), apply rate limit
+    if not is_authenticated:
+        # Get client IP
+        client_ip = fastapi_request.client.host
+        if hasattr(fastapi_request.headers, "get"):
+            # Check for forwarded IP (in case of proxy)
+            forwarded_for = fastapi_request.headers.get("X-Forwarded-For")
+            if forwarded_for:
+                client_ip = forwarded_for.split(",")[0].strip()
 
-                real_ip = fastapi_request.headers.get("X-Real-IP")
-                if real_ip:
-                    client_ip = real_ip.strip()
+            real_ip = fastapi_request.headers.get("X-Real-IP")
+            if real_ip:
+                client_ip = real_ip.strip()
 
-            # Check rate limit (4 requests per minute)
-            if not check_rate_limit(client_ip):
-                raise HTTPException(
-                    status_code=429,
-                    detail="Rate limit exceeded. Maximum 4 requests per minute for unauthenticated users.",
-                )
-
-            # If no authorization header was provided when ACCESS_TOKEN is set
-            if not authorization:
-                raise HTTPException(
-                    status_code=401, detail="Authorization header required"
-                )
-            else:
-                raise HTTPException(
-                    status_code=401, detail="Invalid authorization token"
-                )
+        # Check rate limit (10 requests per minute for unauthenticated users)
+        if not check_rate_limit(client_ip):
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded. Maximum 10 requests per minute for unauthenticated users.",
+            )
 
     try:
         modality = detect_model_kind(request.model)
@@ -251,10 +240,49 @@ async def create_embeddings(
 
 
 @router.post("/rank", response_model=RankResponse, tags=["rank"])
-async def rank_candidates(request: RankRequest, background_tasks: BackgroundTasks):
+async def rank_candidates(
+    request: RankRequest, 
+    background_tasks: BackgroundTasks,
+    fastapi_request: Request,
+    authorization: str = Header(None),
+):
     """
     Rank candidate texts against the given queries.
     """
+    # Check authorization
+    expected_token = os.environ.get("ACCESS_TOKEN")
+    is_authenticated = False
+
+    if expected_token and authorization:
+        # Support both "Bearer <token>" and plain token formats
+        token = authorization
+        if authorization.startswith("Bearer "):
+            token = authorization[7:]  # Remove "Bearer " prefix
+
+        if token == expected_token:
+            is_authenticated = True
+
+    # If not authenticated (no token, empty token, or wrong token), apply rate limit
+    if not is_authenticated:
+        # Get client IP
+        client_ip = fastapi_request.client.host
+        if hasattr(fastapi_request.headers, "get"):
+            # Check for forwarded IP (in case of proxy)
+            forwarded_for = fastapi_request.headers.get("X-Forwarded-For")
+            if forwarded_for:
+                client_ip = forwarded_for.split(",")[0].strip()
+
+            real_ip = fastapi_request.headers.get("X-Real-IP")
+            if real_ip:
+                client_ip = real_ip.strip()
+
+        # Check rate limit (10 requests per minute for unauthenticated users)
+        if not check_rate_limit(client_ip):
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded. Maximum 10 requests per minute for unauthenticated users.",
+            )
+
     try:
         results = await embeddings_service.rank(
             model=request.model,

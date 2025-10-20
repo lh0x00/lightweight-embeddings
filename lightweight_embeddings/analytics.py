@@ -95,35 +95,61 @@ class Analytics:
         - model_id (str): The ID of the accessed model.
         - tokens (int): Number of tokens used in this access event.
         """
+        # Validate inputs
+        if not model_id or not isinstance(model_id, str):
+            logger.warning("Invalid model_id provided: %s", model_id)
+            return
+        
+        if tokens < 0:
+            logger.warning("Negative token count provided for model %s: %d", model_id, tokens)
+            tokens = 0
+        
         keys = self._get_period_keys()
 
         async with self.lock:
-            for period_key in keys:
-                # Increase new increments by the usage
-                self.new_increments["access"][period_key][model_id] += 1
-                self.new_increments["tokens"][period_key][model_id] += tokens
+            try:
+                for period_key in keys:
+                    # Increase new increments by the usage
+                    self.new_increments["access"][period_key][model_id] += 1
+                    self.new_increments["tokens"][period_key][model_id] += tokens
 
-                # Also update current_totals so that stats() are immediately up to date
-                self.current_totals["access"][period_key][model_id] += 1
-                self.current_totals["tokens"][period_key][model_id] += tokens
+                    # Also update current_totals so that stats() are immediately up to date
+                    self.current_totals["access"][period_key][model_id] += 1
+                    self.current_totals["tokens"][period_key][model_id] += tokens
+                    
+                logger.debug("Recorded access for model %s: %d tokens", model_id, tokens)
+            except Exception as e:
+                logger.error("Error recording access for model %s: %s", model_id, e)
 
     async def stats(self) -> Dict[str, Dict[str, Dict[str, int]]]:
         """
         Returns a copy of current statistics from the local buffer (absolute totals).
         """
         async with self.lock:
-            # Return the current_totals, which includes everything loaded from Redis
-            # plus all increments since the last sync.
-            return {
-                "access": {
-                    period: dict(models)
-                    for period, models in self.current_totals["access"].items()
-                },
-                "tokens": {
-                    period: dict(models)
-                    for period, models in self.current_totals["tokens"].items()
-                },
-            }
+            try:
+                # Return the current_totals, which includes everything loaded from Redis
+                # plus all increments since the last sync.
+                result = {
+                    "access": {
+                        period: dict(models)
+                        for period, models in self.current_totals["access"].items()
+                    },
+                    "tokens": {
+                        period: dict(models)
+                        for period, models in self.current_totals["tokens"].items()
+                    },
+                }
+                
+                logger.debug("Retrieved stats for %d access periods and %d token periods", 
+                           len(result["access"]), len(result["tokens"]))
+                return result
+            except Exception as e:
+                logger.error("Error retrieving stats: %s", e)
+                # Return empty structure if there's an error
+                return {
+                    "access": {},
+                    "tokens": {},
+                }
 
     async def _sync_from_redis(self):
         """
@@ -162,8 +188,14 @@ class Analytics:
                     data = await loop.run_in_executor(
                         None, partial(self.redis_client.hgetall, key)
                     )
-                    for model_id, count_str in data.items():
-                        self.current_totals["access"][period][model_id] = int(count_str)
+                    # Ensure data is not None and handle empty results
+                    if data:
+                        for model_id, count_str in data.items():
+                            try:
+                                self.current_totals["access"][period][model_id] = int(count_str)
+                            except (ValueError, TypeError):
+                                logger.warning("Invalid count value for model %s in period %s: %s", model_id, period, count_str)
+                                self.current_totals["access"][period][model_id] = 0
 
                 if cursor == 0:
                     break
@@ -187,8 +219,14 @@ class Analytics:
                     data = await loop.run_in_executor(
                         None, partial(self.redis_client.hgetall, key)
                     )
-                    for model_id, count_str in data.items():
-                        self.current_totals["tokens"][period][model_id] = int(count_str)
+                    # Ensure data is not None and handle empty results
+                    if data:
+                        for model_id, count_str in data.items():
+                            try:
+                                self.current_totals["tokens"][period][model_id] = int(count_str)
+                            except (ValueError, TypeError):
+                                logger.warning("Invalid token count value for model %s in period %s: %s", model_id, period, count_str)
+                                self.current_totals["tokens"][period][model_id] = 0
 
                 if cursor == 0:
                     break
@@ -201,34 +239,44 @@ class Analytics:
         loop = asyncio.get_running_loop()
         async with self.lock:
             try:
+                sync_count = 0
+                
                 # For each (period, model_id, count) in new_increments, call HINCRBY
                 for period, models in self.new_increments["access"].items():
                     redis_key = f"analytics:access:{period}"
                     for model_id, count in models.items():
-                        if count != 0:
-                            await loop.run_in_executor(
-                                None,
-                                partial(
-                                    self.redis_client.hincrby,
-                                    redis_key,
-                                    model_id,
-                                    count,
-                                ),
-                            )
+                        if count > 0:  # Only sync positive counts
+                            try:
+                                await loop.run_in_executor(
+                                    None,
+                                    partial(
+                                        self.redis_client.hincrby,
+                                        redis_key,
+                                        model_id,
+                                        count,
+                                    ),
+                                )
+                                sync_count += 1
+                            except Exception as e:
+                                logger.error("Failed to sync access count for model %s, period %s: %s", model_id, period, e)
 
                 for period, models in self.new_increments["tokens"].items():
                     redis_key = f"analytics:tokens:{period}"
                     for model_id, count in models.items():
-                        if count != 0:
-                            await loop.run_in_executor(
-                                None,
-                                partial(
-                                    self.redis_client.hincrby,
-                                    redis_key,
-                                    model_id,
-                                    count,
-                                ),
-                            )
+                        if count > 0:  # Only sync positive counts
+                            try:
+                                await loop.run_in_executor(
+                                    None,
+                                    partial(
+                                        self.redis_client.hincrby,
+                                        redis_key,
+                                        model_id,
+                                        count,
+                                    ),
+                                )
+                                sync_count += 1
+                            except Exception as e:
+                                logger.error("Failed to sync token count for model %s, period %s: %s", model_id, period, e)
 
                 # Reset new_increments after successful sync
                 self.new_increments = {
@@ -236,7 +284,7 @@ class Analytics:
                     "tokens": defaultdict(lambda: defaultdict(int)),
                 }
 
-                logger.info("Analytics data successfully synced to Upstash Redis.")
+                logger.info("Analytics data successfully synced to Upstash Redis. Synced %d entries.", sync_count)
             except Exception as e:
                 logger.error("Unexpected error during Upstash Redis sync: %s", e)
                 raise e
