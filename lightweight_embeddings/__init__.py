@@ -182,6 +182,7 @@ def create_main_interface():
         "multilingual-e5-small",
         "multilingual-e5-base",
         "multilingual-e5-large",
+        "embeddinggemma-300m",
         "siglip-base-patch16-256-multilingual",
     ]
 
@@ -233,7 +234,7 @@ def create_main_interface():
                       -H 'Content-Type: application/json' \\
                       -H 'Authorization: Bearer YOUR_AUTH_KEY' \\
                       -d '{
-                      "model": "snowflake-arctic-embed-l-v2.0",
+                      "model": "embeddinggemma-300m",
                       "input": "That is a happy person"
                     }'
                     ```
@@ -245,7 +246,7 @@ def create_main_interface():
                       -H 'accept: application/json' \\
                       -H 'Content-Type: application/json' \\
                       -d '{
-                      "model": "snowflake-arctic-embed-l-v2.0",
+                      "model": "embeddinggemma-300m",
                       "input": "That is a happy person"
                     }'
                     ```
@@ -258,7 +259,7 @@ def create_main_interface():
                       -H 'Content-Type: application/json' \\
                       -H 'Authorization: Bearer YOUR_AUTH_KEY' \\
                       -d '{
-                      "model": "snowflake-arctic-embed-l-v2.0",
+                      "model": "embeddinggemma-300m",
                       "queries": "That is a happy person",
                       "candidates": [
                         "That is a happy dog",

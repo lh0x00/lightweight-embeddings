@@ -36,6 +36,7 @@ class TextModelType(str, Enum):
     PARAPHRASE_MULTILINGUAL_MPNET_BASE_V2 = "paraphrase-multilingual-mpnet-base-v2"
     BGE_M3 = "bge-m3"
     GTE_MULTILINGUAL_BASE = "gte-multilingual-base"
+    EMBEDDINGGEMMA300M = "embeddinggemma-300m"
 
 
 class ImageModelType(str, Enum):
@@ -57,6 +58,7 @@ class MaxModelLength(str, Enum):
     PARAPHRASE_MULTILINGUAL_MPNET_BASE_V2 = 128
     BGE_M3 = 8192
     GTE_MULTILINGUAL_BASE = 8192
+    EMBEDDINGGEMMA300M = 2048
 
 
 class ModelInfo(NamedTuple):
@@ -112,6 +114,10 @@ class ModelConfig:
             ),
             TextModelType.GTE_MULTILINGUAL_BASE: ModelInfo(
                 model_id="onnx-community/gte-multilingual-base",
+                onnx_file="onnx/model_quantized.onnx",
+            ),
+            TextModelType.EMBEDDINGGEMMA300M: ModelInfo(
+                model_id="onnx-community/embeddinggemma-300m-ONNX",
                 onnx_file="onnx/model_quantized.onnx",
             ),
         }
