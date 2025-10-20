@@ -6,8 +6,8 @@ pydantic
 cachetools
 pandas
 httpx
-sentence-transformers[onnx]==3.3.1
-sentencepiece==0.2.0
-torch==2.4.0
-transformers==4.45.0
-upstash_redis==1.2.0
+sentence-transformers[onnx]==5.1.1
+sentencepiece==0.2.1
+torch==2.9.0
+transformers==4.57.1
+upstash_redis==1.4.0
