@@ -159,6 +159,8 @@ class Analytics:
         """
         loop = asyncio.get_running_loop()
         async with self.lock:
+            logger.info("Starting sync from Upstash Redis...")
+            
             # Reset local structures
             self.current_totals = {
                 "access": defaultdict(lambda: defaultdict(int)),
@@ -169,67 +171,126 @@ class Analytics:
                 "tokens": defaultdict(lambda: defaultdict(int)),
             }
 
+            # Sync access data
+            logger.debug("Scanning access analytics keys...")
             cursor = 0
-            while True:
-                scan_result = await loop.run_in_executor(
-                    None,
-                    partial(
-                        self.redis_client.scan,
-                        cursor=cursor,
-                        match="analytics:access:*",
-                        count=1000,
-                    ),
-                )
-                cursor, keys = scan_result[0], scan_result[1]
-
-                for key in keys:
-                    # key is "analytics:access:<period>"
-                    period = key.replace("analytics:access:", "")
-                    data = await loop.run_in_executor(
-                        None, partial(self.redis_client.hgetall, key)
+            scan_attempts = 0
+            max_scan_attempts = 100  # Prevent infinite loops
+            
+            while scan_attempts < max_scan_attempts:
+                try:
+                    scan_result = await loop.run_in_executor(
+                        None,
+                        partial(
+                            self.redis_client.scan,
+                            cursor=cursor,
+                            match="analytics:access:*",
+                            count=10000,
+                        ),
                     )
-                    # Ensure data is not None and handle empty results
-                    if data:
-                        for model_id, count_str in data.items():
-                            try:
-                                self.current_totals["access"][period][model_id] = int(count_str)
-                            except (ValueError, TypeError):
-                                logger.warning("Invalid count value for model %s in period %s: %s", model_id, period, count_str)
-                                self.current_totals["access"][period][model_id] = 0
+                    
+                    # Handle different return formats from Upstash Redis
+                    if isinstance(scan_result, (list, tuple)) and len(scan_result) >= 2:
+                        cursor, keys = scan_result[0], scan_result[1]
+                    else:
+                        logger.warning("Unexpected scan result format: %s", scan_result)
+                        break
+                        
+                    # Convert cursor to int if it's a string
+                    if isinstance(cursor, str):
+                        cursor = int(cursor) if cursor.isdigit() else 0
+                    
+                    logger.debug("Scanned access keys: cursor=%s, found %d keys", cursor, len(keys) if keys else 0)
+                    
+                    if keys:
+                        for key in keys:
+                            # key is "analytics:access:<period>"
+                            period = key.replace("analytics:access:", "")
+                            data = await loop.run_in_executor(
+                                None, partial(self.redis_client.hgetall, key)
+                            )
+                            # Ensure data is not None and handle empty results
+                            if data:
+                                for model_id, count_str in data.items():
+                                    try:
+                                        self.current_totals["access"][period][model_id] = int(count_str)
+                                    except (ValueError, TypeError):
+                                        logger.warning("Invalid count value for model %s in period %s: %s", model_id, period, count_str)
+                                        self.current_totals["access"][period][model_id] = 0
 
-                if cursor == 0:
+                    if cursor == 0:
+                        break
+                        
+                    scan_attempts += 1
+                    
+                except Exception as e:
+                    logger.error("Error during access scan attempt %d: %s", scan_attempts, e)
                     break
+                    
+            if scan_attempts >= max_scan_attempts:
+                logger.warning("Max scan attempts reached for access keys. Stopping scan.")
 
+            # Sync token data
+            logger.debug("Scanning token analytics keys...")
             cursor = 0
-            while True:
-                scan_result = await loop.run_in_executor(
-                    None,
-                    partial(
-                        self.redis_client.scan,
-                        cursor=cursor,
-                        match="analytics:tokens:*",
-                        count=1000,
-                    ),
-                )
-                cursor, keys = scan_result[0], scan_result[1]
-
-                for key in keys:
-                    # key is "analytics:tokens:<period>"
-                    period = key.replace("analytics:tokens:", "")
-                    data = await loop.run_in_executor(
-                        None, partial(self.redis_client.hgetall, key)
+            scan_attempts = 0
+            max_scan_attempts = 100  # Prevent infinite loops
+            
+            while scan_attempts < max_scan_attempts:
+                try:
+                    scan_result = await loop.run_in_executor(
+                        None,
+                        partial(
+                            self.redis_client.scan,
+                            cursor=cursor,
+                            match="analytics:tokens:*",
+                            count=1000,
+                        ),
                     )
-                    # Ensure data is not None and handle empty results
-                    if data:
-                        for model_id, count_str in data.items():
-                            try:
-                                self.current_totals["tokens"][period][model_id] = int(count_str)
-                            except (ValueError, TypeError):
-                                logger.warning("Invalid token count value for model %s in period %s: %s", model_id, period, count_str)
-                                self.current_totals["tokens"][period][model_id] = 0
+                    
+                    # Handle different return formats from Upstash Redis
+                    if isinstance(scan_result, (list, tuple)) and len(scan_result) >= 2:
+                        cursor, keys = scan_result[0], scan_result[1]
+                    else:
+                        logger.warning("Unexpected scan result format: %s", scan_result)
+                        break
+                        
+                    # Convert cursor to int if it's a string
+                    if isinstance(cursor, str):
+                        cursor = int(cursor) if cursor.isdigit() else 0
+                    
+                    logger.debug("Scanned token keys: cursor=%s, found %d keys", cursor, len(keys) if keys else 0)
+                    
+                    if keys:
+                        for key in keys:
+                            # key is "analytics:tokens:<period>"
+                            period = key.replace("analytics:tokens:", "")
+                            data = await loop.run_in_executor(
+                                None, partial(self.redis_client.hgetall, key)
+                            )
+                            # Ensure data is not None and handle empty results
+                            if data:
+                                for model_id, count_str in data.items():
+                                    try:
+                                        self.current_totals["tokens"][period][model_id] = int(count_str)
+                                    except (ValueError, TypeError):
+                                        logger.warning("Invalid token count value for model %s in period %s: %s", model_id, period, count_str)
+                                        self.current_totals["tokens"][period][model_id] = 0
 
-                if cursor == 0:
+                    if cursor == 0:
+                        break
+                        
+                    scan_attempts += 1
+                    
+                except Exception as e:
+                    logger.error("Error during token scan attempt %d: %s", scan_attempts, e)
                     break
+                    
+            if scan_attempts >= max_scan_attempts:
+                logger.warning("Max scan attempts reached for token keys. Stopping scan.")
+                
+            logger.info("Completed sync from Upstash Redis. Loaded %d access periods, %d token periods.", 
+                       len(self.current_totals["access"]), len(self.current_totals["tokens"]))
 
     async def _sync_to_redis(self):
         """
