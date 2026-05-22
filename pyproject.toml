@@ -1,15 +1,105 @@
-[tool.poetry]
+[project]
 name = "lightweight-embeddings"
-version = "0.1.0"
-short_description = "A fast, free, unlimited APIs service for multilingual embeddings and reranking, supporting text and image inputs."
-description = "LightweightEmbeddings is a fast, free, and unlimited API service for multilingual embeddings and reranking, with support for both text and images and guaranteed uptime."
-authors = ["Hieu Lam <lamhieu.vk@gmail.com>"]
+version = "1.1.0"
+description = "Fast, free, multilingual embeddings & reranking API for text and image inputs."
 readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Hieu Lam", email = "lamhieu.vk@gmail.com" }]
+keywords = ["embeddings", "reranking", "multilingual", "fastapi", "sentence-transformers"]
 
-[tool.poetry.dependencies]
-python = "^3.10"
+dependencies = [
+  "fastapi>=0.115,<0.120",
+  "uvicorn[standard]>=0.30,<0.40",
+  "pydantic>=2.7,<3",
+  "pydantic-settings>=2.4,<3",
+  "orjson>=3.10,<4",
+  "httpx[http2]>=0.27,<0.30",
+  "cachetools>=5.3,<6",
+  "psutil>=5.9,<8",
+  "prometheus-client>=0.20,<0.22",
+  "Pillow>=10.3,<12",
+  "numpy>=1.26,<3",
+  "torch==2.9.0",
+  "transformers==4.51.3",
+  "sentence-transformers[onnx]==4.1.0",
+  "sentencepiece==0.2.1",
+  "onnxruntime>=1.18,<2",
+  "upstash_redis==1.4.0",
+]
 
+[project.optional-dependencies]
+ui = [
+  "gradio>=4.40,<6",
+]
+dev = [
+  "pytest>=8.0,<9",
+  "pytest-asyncio>=0.23,<1",
+  "ruff>=0.5,<1",
+  "mypy>=1.10,<2",
+  "types-cachetools",
+  "httpx>=0.27,<0.30",
+]
+
+[project.urls]
+Homepage = "https://github.com/lh0x00/lightweight-embeddings"
+Repository = "https://github.com/lh0x00/lightweight-embeddings"
+Documentation = "https://lamhieu-lightweight-embeddings.hf.space/docs"
+"Hugging Face" = "https://huggingface.co/spaces/lamhieu/lightweight-embeddings"
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["lightweight_embeddings*"]
+exclude = ["tests*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+  "E",    # pycodestyle errors
+  "F",    # pyflakes
+  "I",    # isort
+  "B",    # flake8-bugbear
+  "UP",   # pyupgrade
+  "SIM",  # flake8-simplify
+  "RUF",  # ruff-specific
+  "ASYNC",
+  "S",    # bandit (security)
+]
+ignore = [
+  "S101",   # assert is fine in tests
+  "B008",   # FastAPI Depends pattern
+  "S110",   # try/except/pass — used intentionally on graceful shutdown paths
+  "SIM105", # contextlib.suppress is not always clearer than try/except/pass
+  "RUF002", # ambiguous unicode in user-facing docstrings/messages (Vietnamese, emojis)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "B017"]
+# Lifespan / shutdown code legitimately catches broad exceptions while
+# tearing down resources — see ``main.py`` and ``analytics/service.py``.
+"lightweight_embeddings/main.py" = ["BLE001"]
+"lightweight_embeddings/analytics/service.py" = ["BLE001"]
+# Internal Sentence-Transformers helper used pragmatically; see comment.
+"lightweight_embeddings/core/service.py" = ["SLF001"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+ignore_missing_imports = true
+plugins = []
+
+[tool.pytest.ini_options]
+addopts = "-q --strict-markers --tb=short"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+  "integration: tests that load a real model (slow)",
+]

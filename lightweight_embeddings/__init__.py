@@ -1,315 +1,41 @@
-import gradio as gr
-import requests
-import json
-import logging
-import pandas as pd
-from typing import Tuple
+"""Lightweight Embeddings — package entry point.
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from gradio.routes import mount_gradio_app
-
-
-# Filter out /v1 requests from the access log
-class LogFilter(logging.Filter):
-    def filter(self, record):
-        if record.args and len(record.args) >= 3:
-            if "/v1" in str(record.args[2]):
-                return True
-        return False
-
-
-logger = logging.getLogger("uvicorn.access")
-logger.addFilter(LogFilter())
-
-# Application metadata
-__version__ = "1.0.0"
-__author__ = "lamhieu"
-__description__ = "Fast, lightweight, multilingual embeddings solution."
-__metadata__ = {
-    "project": "Lightweight Embeddings Service",
-    "version": __version__,
-    "description": (
-        "Fast and efficient multilingual text and image embeddings service "
-        "powered by sentence-transformers, supporting 100+ languages and multi-modal inputs"
-    ),
-    "docs": "https://lamhieu-lightweight-embeddings.hf.space/docs",
-    "github": "https://github.com/lh0x00/lightweight-embeddings",
-    "spaces": "https://huggingface.co/spaces/lamhieu/lightweight-embeddings",
-}
-
-# Set your embeddings API URL here (change host/port if needed)
-EMBEDDINGS_API_URL = "http://localhost:7860/v1/embeddings"
-
-# Markdown description for the main interface
-APP_DESCRIPTION = f"""
-# 🚀 **Lightweight Embeddings API**  
-
-The **Lightweight Embeddings API** is a fast, free, and multilingual service designed for generating embeddings and reranking with support for both **text** and **image** inputs.
-
-### ✨ Features & Privacy
-
-- **Free & Multilingual**: Unlimited API service supporting 100+ languages with no usage restrictions
-- **Advanced Processing**: High-quality text and image-text embeddings using state-of-the-art models with reranking capabilities
-- **Privacy-First**: No storage of input data (text/images), only anonymous usage statistics for service improvement
-- **Production-Ready**: Docker deployment, interactive Gradio playground, and comprehensive REST API documentation
-- **Open & Efficient**: Fully open-source codebase using lightweight transformer models for rapid inference
-
-### 🔗 Resources
-- [Documentation]({__metadata__["docs"]}) | [GitHub]({__metadata__["github"]}) | [Playground]({__metadata__["spaces"]})
+Importing this module is **side-effect free**: model weights are loaded
+lazily inside :func:`main.create_app`'s lifespan. The previous version eager
+loaded ten models on import, which made tests, CLI tools, and worker boot
+prohibitively expensive.
 """
 
+from __future__ import annotations
 
-# Initialize FastAPI application
-app = FastAPI(
-    title="Lightweight Embeddings API",
-    description=__description__,
-    version=__version__,
-    docs_url="/docs",
-    redoc_url="/redoc",
-)
-
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Adjust if needed for specific domains
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Include your existing router (which provides /v1/embeddings, /v1/rank, etc.)
-from .router import router
-
-app.include_router(router, prefix="/v1")
+__version__ = "1.1.0"
+__author__ = "lamhieu"
+__description__ = "Fast, lightweight, multilingual embeddings & reranking service."
 
 
-def call_embeddings_api(user_input: str, selected_model: str, auth_key: str = "") -> str:
+def _build_default_app():
+    """Build the application using settings from the environment.
+
+    Re-exposed as the module-level ``app`` for backwards compatibility with
+    the existing entry script ``app.py``::
+
+        from lightweight_embeddings import app
     """
-    Send a request to the /v1/embeddings endpoint with the given model and input.
-    Return a pretty-printed JSON response or an error message.
-    """
-    payload = {
-        "model": selected_model,
-        "input": user_input,
-    }
-    headers = {"Content-Type": "application/json"}
-    
-    # Add authorization header if auth_key is provided
-    if auth_key.strip():
-        headers["Authorization"] = f"Bearer {auth_key.strip()}"
+    from .main import create_app
 
-    try:
-        response = requests.post(
-            EMBEDDINGS_API_URL, json=payload, headers=headers, timeout=20
-        )
-    except requests.exceptions.RequestException as e:
-        return f"❌ Network Error: {str(e)}"
-
-    if response.status_code != 200:
-        # Provide detailed error message
-        return f"❌ API Error {response.status_code}: {response.text}"
-
-    try:
-        data = response.json()
-        return json.dumps(data, indent=2, ensure_ascii=False)
-    except ValueError:
-        return "❌ Failed to parse JSON from API response."
+    return create_app()
 
 
-def call_stats_api_df() -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Calls the /v1/stats endpoint to retrieve analytics data.
-    Returns two DataFrames (access_df, tokens_df) constructed from the JSON response.
-    """
-    url = "https://lamhieu-lightweight-embeddings.hf.space/v1/stats"
-
-    # Fetch stats
-    response = requests.get(url)
-    if response.status_code != 200:
-        raise ValueError(f"Failed to fetch stats: {response.text}")
-
-    data = response.json()
-    access_data = data["access"]
-    tokens_data = data["tokens"]
-
-    def build_stats_df(bucket: dict) -> pd.DataFrame:
-        """
-        Helper to build a DataFrame with columns: Model, total, daily, weekly, monthly, yearly.
-        bucket is a dictionary like data["access"] or data["tokens"] in the stats response.
-        """
-        all_models = set()
-        for time_range in ["total", "daily", "weekly", "monthly", "yearly"]:
-            all_models.update(bucket[time_range].keys())
-
-        # Prepare a data structure for DataFrame creation
-        result_dict = {
-            "Model": [],
-            "Total": [],
-            "Daily": [],
-            "Weekly": [],
-            "Monthly": [],
-            "Yearly": [],
-        }
-
-        for model in sorted(all_models):
-            result_dict["Model"].append(model)
-            result_dict["Total"].append(bucket["total"].get(model, 0))
-            result_dict["Daily"].append(bucket["daily"].get(model, 0))
-            result_dict["Weekly"].append(bucket["weekly"].get(model, 0))
-            result_dict["Monthly"].append(bucket["monthly"].get(model, 0))
-            result_dict["Yearly"].append(bucket["yearly"].get(model, 0))
-
-        df = pd.DataFrame(result_dict)
-        return df
-
-    access_df = build_stats_df(access_data)
-    tokens_df = build_stats_df(tokens_data)
-    return access_df, tokens_df
+# Lazy module attribute so importing the package alone does not boot FastAPI
+# or load any model. The default ASGI entry expression ``app:app`` (where
+# ``app.py`` does ``from lightweight_embeddings import app``) still works
+# because Python evaluates the attribute on demand.
+def __getattr__(name: str):  # pragma: no cover - simple delegation
+    if name == "app":
+        global app  # type: ignore[name-defined]
+        app = _build_default_app()
+        return app
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def create_main_interface():
-    """
-    Creates a Gradio Blocks interface showing project info and an embeddings playground.
-    """
-    # Available model options for the dropdown
-    model_options = [
-        "snowflake-arctic-embed-l-v2.0",
-        "bge-m3",
-        "gte-multilingual-base",
-        "paraphrase-multilingual-MiniLM-L12-v2",
-        "paraphrase-multilingual-mpnet-base-v2",
-        "multilingual-e5-small",
-        "multilingual-e5-base",
-        "multilingual-e5-large",
-        "embeddinggemma-300m",
-        "siglip-base-patch16-256-multilingual",
-    ]
-
-    with gr.Blocks(title="Lightweight Embeddings", theme="default") as demo:
-        gr.Markdown(APP_DESCRIPTION)
-        with gr.Tab("Embeddings Playground"):
-            with gr.Row():
-                with gr.Column():
-                    gr.Markdown("### 🔬 Try the Embeddings Playground")
-                    input_text = gr.Textbox(
-                        label="Input Text or Image URL",
-                        placeholder="Enter text or an image URL...",
-                        lines=3,
-                    )
-                    model_dropdown = gr.Dropdown(
-                        choices=model_options,
-                        value=model_options[0],
-                        label="Select Model",
-                    )
-                    auth_key = gr.Textbox(
-                        label="Authorization Key (Optional)",
-                        placeholder="Enter your auth key if required...",
-                        type="password",
-                        lines=1,
-                    )
-                    generate_btn = gr.Button("Generate Embeddings")
-                    output_json = gr.Textbox(
-                        label="Embeddings API Response",
-                        lines=10,
-                        interactive=False,
-                    )
-
-                    generate_btn.click(
-                        fn=call_embeddings_api,
-                        inputs=[input_text, model_dropdown, auth_key],
-                        outputs=output_json,
-                    )
-
-                with gr.Column():
-                    gr.Markdown(
-                        """
-                    ### 🛠️ cURL Examples
-
-                    **Generate Embeddings (OpenAI compatible)**
-                    ```bash
-                    curl -X 'POST' \\
-                      'https://lamhieu-lightweight-embeddings.hf.space/v1/embeddings' \\
-                      -H 'accept: application/json' \\
-                      -H 'Content-Type: application/json' \\
-                      -H 'Authorization: Bearer YOUR_AUTH_KEY' \\
-                      -d '{
-                      "model": "embeddinggemma-300m",
-                      "input": "That is a happy person"
-                    }'
-                    ```
-
-                    **Generate Embeddings (without auth)**
-                    ```bash
-                    curl -X 'POST' \\
-                      'https://lamhieu-lightweight-embeddings.hf.space/v1/embeddings' \\
-                      -H 'accept: application/json' \\
-                      -H 'Content-Type: application/json' \\
-                      -d '{
-                      "model": "embeddinggemma-300m",
-                      "input": "That is a happy person"
-                    }'
-                    ```
-
-                    **Perform Ranking**
-                    ```bash
-                    curl -X 'POST' \\
-                      'https://lamhieu-lightweight-embeddings.hf.space/v1/rank' \\
-                      -H 'accept: application/json' \\
-                      -H 'Content-Type: application/json' \\
-                      -H 'Authorization: Bearer YOUR_AUTH_KEY' \\
-                      -d '{
-                      "model": "embeddinggemma-300m",
-                      "queries": "That is a happy person",
-                      "candidates": [
-                        "That is a happy dog",
-                        "That is a very happy person",
-                        "Today is a sunny day"
-                      ]
-                    }'
-                    ```
-                    
-                    💡 **Note**: Add Authorization header only if ACCESS_TOKEN environment variable is set on the server.
-                    """
-                    )
-
-        # STATS SECTION: display stats in tables
-        with gr.Tab("Analytics Stats"):
-            stats_btn = gr.Button("Get Stats")
-            access_df = gr.DataFrame(
-                label="Access Stats",
-                headers=["Model", "Total", "Daily", "Weekly", "Monthly", "Yearly"],
-                interactive=False,
-            )
-            tokens_df = gr.DataFrame(
-                label="Token Stats",
-                headers=["Model", "Total", "Daily", "Weekly", "Monthly", "Yearly"],
-                interactive=False,
-            )
-            stats_btn.click(
-                fn=call_stats_api_df, inputs=[], outputs=[access_df, tokens_df]
-            )
-
-    return demo
-
-
-# Create and mount the Gradio Blocks at the root path
-main_interface = create_main_interface()
-mount_gradio_app(app, main_interface, path="/")
-
-
-# Startup and shutdown events
-@app.on_event("startup")
-async def startup_event():
-    """
-    Initialize resources (like model loading) when the application starts.
-    """
-    pass
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """
-    Perform cleanup before the application shuts down.
-    """
-    pass
+__all__ = ["__author__", "__description__", "__version__", "app"]

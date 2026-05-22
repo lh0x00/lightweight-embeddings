@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  lint-and-test:
+    name: Lint & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install lightweight test deps
+        # We avoid heavy ML deps (torch, sentence-transformers, gradio) here
+        # because unit tests do not exercise them. Integration tests run
+        # separately with the full requirements.txt.
+        run: |
+          python -m pip install --upgrade pip
+          pip install \
+            "pydantic>=2.7,<3" "pydantic-settings>=2.4,<3" \
+            "fastapi>=0.115,<0.120" "starlette>=0.40,<1" \
+            "httpx[http2]>=0.27,<0.30" \
+            "cachetools>=5.3,<6" "psutil>=5.9,<8" \
+            "prometheus-client>=0.20,<0.22" \
+            "Pillow>=10.3,<12" "numpy>=1.26,<3" \
+            "orjson>=3.10,<4" \
+            "pytest>=8.0,<9" "pytest-asyncio>=0.23,<1" \
+            "ruff>=0.5,<1"
+
+      - name: Ruff check
+        run: ruff check lightweight_embeddings tests
+
+      - name: Pytest (unit only)
+        env:
+          LWE_ENABLE_UI: "false"
+          LWE_MODELS_PRELOAD: "none"
+        run: pytest tests/unit -q
+
+  docker-build:
+    name: Docker Build (smoke)
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true
+          tags: lightweight-embeddings:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

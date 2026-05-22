@@ -1,13 +1,22 @@
-gradio
-fastapi
-uvicorn
-requests
-pydantic
-cachetools
-pandas
-httpx
-sentence-transformers[onnx]==4.1.0
-sentencepiece==0.2.1
+# Runtime dependencies (single source of truth: pyproject.toml).
+# Pinned ranges chosen for production stability.
+fastapi>=0.115,<0.120
+uvicorn[standard]>=0.30,<0.40
+pydantic>=2.7,<3
+pydantic-settings>=2.4,<3
+orjson>=3.10,<4
+httpx[http2]>=0.27,<0.30
+cachetools>=5.3,<6
+psutil>=5.9,<8
+prometheus-client>=0.20,<0.22
+Pillow>=10.3,<12
+numpy>=1.26,<3
 torch==2.9.0
 transformers==4.51.3
+sentence-transformers[onnx]==4.1.0
+sentencepiece==0.2.1
+onnxruntime>=1.18,<2
 upstash_redis==1.4.0
+
+# UI (optional; remove for headless API-only deployments)
+gradio>=4.40,<6
