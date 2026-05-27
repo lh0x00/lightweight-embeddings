@@ -78,6 +78,8 @@ def build_demo(app):
 
     text_models, image_models = _model_choices()
     all_models = [*text_models, *image_models]
+    default_model = text_models[0] if text_models else None
+    default_dims = _matryoshka_for(default_model) if default_model else []
 
     # ---------- handlers ----------
     async def embed_handler(text: str, model: str, dimensions: int | None) -> str:
@@ -204,15 +206,15 @@ def build_demo(app):
                         with gr.Row():
                             embed_model = gr.Dropdown(
                                 choices=all_models,
-                                value=text_models[0] if text_models else None,
+                                value=default_model,
                                 label="Model",
                                 scale=3,
                             )
                             embed_dim = gr.Dropdown(
-                                choices=[],
-                                value=None,
+                                choices=[str(d) for d in default_dims],
+                                value=str(default_dims[-1]) if default_dims else None,
                                 label="Dimensions (Matryoshka)",
-                                visible=False,
+                                visible=bool(default_dims),
                                 allow_custom_value=False,
                                 scale=2,
                             )

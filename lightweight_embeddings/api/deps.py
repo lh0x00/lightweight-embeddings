@@ -73,7 +73,7 @@ def get_memguard(request: Request) -> MemoryGuard:
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 ServiceDep = Annotated[EmbeddingsService, Depends(get_service)]
-AnalyticsDep = Annotated["AnalyticsService | NullAnalyticsService", Depends(get_analytics)]
+AnalyticsDep = Annotated[AnalyticsService | NullAnalyticsService, Depends(get_analytics)]
 RateLimiterDep = Annotated[RateLimiter, Depends(get_rate_limiter)]
 ConcurrencyDep = Annotated[ConcurrencyLimiter, Depends(get_concurrency)]
 ShedderDep = Annotated[AdaptiveShedder, Depends(get_shedder)]
